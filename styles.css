@@ -44,7 +44,7 @@ a:hover { text-decoration: underline; }
 .card {
   background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 14px;
+  border-radius: 8px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
   overflow: hidden;
 }
@@ -57,7 +57,7 @@ a:hover { text-decoration: underline; }
 .btn-ghost {
   border: 1px solid #e2e8f0;
   background: #fff;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 6px 12px;
   font-size: 13.5px;
   color: #334155;
@@ -66,18 +66,19 @@ a:hover { text-decoration: underline; }
 .btn-ghost[disabled] { opacity: .55; cursor: not-allowed; }
 .btn-ghost[disabled]:hover { background: #fff; }
 
-.btn-primary {
-  border: 0;
-  background: #2563eb;
-  color: #fff;
-  border-radius: 8px;
-  padding: 6px 14px;
+.btn-pale {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 6px 12px;
   font-size: 13.5px;
-  font-weight: 500;
+  color: #94a3b8;
 }
-.btn-primary:hover { background: #1d4ed8; }
-.btn-primary[disabled] { opacity: .55; cursor: not-allowed; }
-.btn-primary[disabled]:hover { background: #2563eb; }
+.btn-pale:hover { color: #64748b; background: #f1f5f9; }
+.btn-pale[disabled] { cursor: not-allowed; }
+.btn-pale[disabled]:hover { background: #f8fafc; color: #94a3b8; }
+
+.head-edit { margin-left: auto; }
 
 .pg-title {
   font-size: 22px;
@@ -118,7 +119,7 @@ a:hover { text-decoration: underline; }
   gap: 7px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 9px;
+  border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;
   color: #334155;
@@ -155,7 +156,7 @@ a:hover { text-decoration: underline; }
 
 .pending {
   border: 1.5px dashed #cbd5e1;
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 34px 20px;
   text-align: center;
   color: #94a3b8;
@@ -167,7 +168,7 @@ a:hover { text-decoration: underline; }
   margin-top: 14px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 12px 16px;
   font-size: 13px;
   color: #475569;
@@ -184,7 +185,7 @@ a:hover { text-decoration: underline; }
 .tile {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 6px;
   padding: 12px 14px;
 }
 .tile .t-label { font-size: 12px; color: #64748b; }
@@ -218,7 +219,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   color: #94a3b8;
   font-size: 13.5px;
   background: #f8fafc;
-  border-radius: 10px;
+  border-radius: 6px;
   border: 1px solid #e2e8f0;
 }
 
@@ -233,7 +234,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .form-skel input, .form-skel textarea {
   width: 100%;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 8px 11px;
   font: inherit;
   font-size: 13.5px;

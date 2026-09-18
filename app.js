@@ -129,11 +129,11 @@ function headCard() {
     <div class="pg-head">
       <div class="pg-head-top">
         <button class="btn-ghost" ${noSim("Возврат к списку проектов")}>← Назад</button>
-        <button class="btn-primary" ${noSim("Поля объекта")}>Редактировать</button>
         <div class="pg-title">${esc(NAME_TZ)}
           ${statusChip(P.status)}
           <span class="chip chip-undef" title="Форма статуса: .. / .. — ждёт решения по ТЗ">.. / ..</span>
         </div>
+        <button class="btn-pale head-edit" ${noSim("Поля объекта")}>Редактировать</button>
       </div>
       <div class="pg-meta">
         <a class="meta-pill" href="#" onclick="return false" title="Ссылка на топик проекта — демо">✈️ Открыть Telegram</a>
