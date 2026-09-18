@@ -212,24 +212,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .sect-title { font-size: 15px; font-weight: 600; margin: 22px 0 10px; }
 .sect-title:first-child { margin-top: 0; }
 
-.media-stats { font-size: 13px; color: #64748b; margin-bottom: 14px; }
-.media-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 12px;
-}
-.media-card { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #fff; }
-.media-card .ph {
-  aspect-ratio: 4 / 3;
-  background: #e2e8f0;
-  display: block;
-  width: 100%;
-  object-fit: cover;
-}
-.media-card .mc-meta { padding: 8px 10px; font-size: 12px; color: #64748b; }
-.media-card .mc-meta .a { font-weight: 600; color: #334155; }
-.media-card .mc-meta .c { margin-top: 3px; color: #475569; }
-
 .empty {
   padding: 26px;
   text-align: center;
