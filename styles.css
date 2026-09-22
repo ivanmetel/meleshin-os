@@ -39,7 +39,35 @@ a:hover { text-decoration: underline; }
 .crumb { font-size: 13.5px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .crumb b { color: #1e293b; font-weight: 600; }
 
-.wrap { max-width: 1200px; margin: 22px auto 48px; padding: 0 20px; }
+/* ---------- layout: левая панель + контент ---------- */
+
+.layout {
+  display: flex;
+  align-items: flex-start;
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.side { display: none; width: 200px; flex: none; padding: 22px 14px 0 0; }
+body.on-card .side { display: block; }
+.side-inner { position: sticky; top: 56px; }
+
+.btn-all {
+  display: block;
+  width: 100%;
+  background: #2563eb;
+  color: #fff;
+  border: 1px solid #2563eb;
+  border-radius: 4px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: center;
+}
+.btn-all:hover { background: #1d4ed8; text-decoration: none; }
+
+.wrap { flex: 1; min-width: 0; margin: 22px 0 48px; }
 
 .card {
   background: #fff;
@@ -62,9 +90,10 @@ a:hover { text-decoration: underline; }
   font-size: 13.5px;
   color: #334155;
 }
-.btn-ghost:hover { background: #f8fafc; }
+.btn-ghost:hover { background: #f8fafc; text-decoration: none; }
 .btn-ghost[disabled] { opacity: .55; cursor: not-allowed; }
 .btn-ghost[disabled]:hover { background: #fff; }
+a.btn-ghost { color: #334155; }
 
 .btn-pale {
   border: 1px solid #e2e8f0;
@@ -106,6 +135,53 @@ a:hover { text-decoration: underline; }
 .chip-done     { background: #e2e8f0; color: #475569; }
 .chip-paused   { background: #ede9fe; color: #7c3aed; }
 .chip-undef    { background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; }
+
+/* Этап (ТЗ 2.2 п.3) — контурный чип, отличимый от залитых чипов статуса */
+.chip-stage    { background: #fff; color: #475569; border: 1px solid #cbd5e1; }
+
+/* ---------- страница "Все проекты" ---------- */
+
+.filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+.fchip {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+}
+.fchip:hover { background: #f1f5f9; }
+.fchip.active { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; font-weight: 600; }
+
+.proj-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  padding: 22px;
+}
+
+.proj-card {
+  display: block;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 14px 16px;
+  color: inherit;
+}
+.proj-card:hover {
+  background: #fff;
+  border-color: #93c5fd;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05);
+  text-decoration: none;
+}
+.pc-title { font-size: 15.5px; font-weight: 600; color: #1e293b; }
+.pc-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 9px 0 10px; }
+.pc-meta { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #475569; }
+.pc-meta .lbl { color: #64748b; }
+
+.list-foot { padding: 0 22px 18px; font-size: 12.5px; color: #64748b; }
 
 .pg-meta {
   display: flex;
@@ -242,8 +318,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   background: #f8fafc;
 }
 
+@media (max-width: 860px) {
+  .layout { flex-direction: column; }
+  .side { width: auto; padding: 14px 0 0; }
+  .side-inner { position: static; }
+  .btn-all { display: inline-block; width: auto; }
+}
+
 @media (max-width: 640px) {
   .pg-title { font-size: 18px; }
-  .wrap { padding: 0 10px; }
+  .layout { padding: 0 10px; }
+  .proj-grid { padding: 14px 12px; }
   .tab-body { padding: 16px 12px; }
 }
