@@ -174,8 +174,9 @@ const TABS = [
 /* ---------------- шапка карточки (ТЗ 2.2) ---------------- */
 
 function headCard(p) {
-  // ТЗ 2.2: Назад | Название | Этап (п.3) + Состояние (п.4) + даты (п.11-12) | участники (п.5-8) и каналы (п.9-10) столбцом
-  const personPill = (label, pp) => (pp ? `<span class="meta-pill"><span class="lbl">${label}:</span> ${fmtPerson(pp)}</span>` : "");
+  // ТЗ 2.2: Назад | Название | Этап (п.3) + Состояние (п.4) + Даты работ (п.11-12) | участники (п.5-8) и каналы (п.9-10) таблицей с невидимыми границами
+  const personRow = (label, pp) => (pp ? `<tr><td class="lbl">${label}:</td><td>${esc(pp.name)}</td><td>${esc(pp.phone || "")}</td><td>${esc(pp.tg || "")}</td></tr>` : "");
+  const channelRow = (label, v) => (v ? `<tr><td class="lbl">${label}:</td><td colspan="3">${esc(v)}</td></tr>` : "");
   const dates = !p.start_date ? "" : (p.end_date ? `${fmtDate(p.start_date)} — ${fmtDate(p.end_date)}` : fmtDate(p.start_date));
   return `
     <div class="pg-head">
@@ -184,17 +185,17 @@ function headCard(p) {
         <div class="pg-title">${esc(p.name)}
           ${stageChip(p.stage)}
           ${stateChip(p.state)}
-          ${dates ? `<span class="pg-dates">${dates}</span>` : ""}
+          ${dates ? `<span class="pg-dates">Даты работ: ${dates}</span>` : ""}
         </div>
       </div>
-      <div class="pg-meta">
-        ${personPill("Клиент", p.client)}
-        ${personPill("Руководитель проекта", p.pm)}
-        ${personPill("Прораб", p.foreman)}
-        ${personPill("Представитель клиента", p.client_rep)}
-        ${p.tg_team ? `<span class="meta-pill"><span class="lbl">Telegram-канал команды:</span> ${esc(p.tg_team)}</span>` : ""}
-        ${p.tg_client ? `<span class="meta-pill"><span class="lbl">Telegram-канал клиента:</span> ${esc(p.tg_client)}</span>` : ""}
-      </div>
+      <table class="head-tbl">
+        ${personRow("Клиент", p.client)}
+        ${personRow("Руководитель проекта", p.pm)}
+        ${personRow("Прораб", p.foreman)}
+        ${personRow("Представитель клиента", p.client_rep)}
+        ${channelRow("Telegram-канал команды", p.tg_team)}
+        ${channelRow("Telegram-канал клиента", p.tg_client)}
+      </table>
     </div>`;
 }
 

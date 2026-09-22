@@ -189,27 +189,10 @@ a.btn-ghost { color: #334155; }
 
 .pg-dates { font-size: 14px; color: #64748b; font-weight: 500; }
 
-/* участники и каналы — одним столбцом (ТЗ 2.2 п.5-10) */
-.pg-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  margin-top: 14px;
-}
-.meta-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  padding: 6px 12px;
-  font-size: 13px;
-  color: #334155;
-}
-.meta-pill .lbl { color: #64748b; }
-.meta-pill a { font-weight: 500; }
+/* участники и каналы — таблица с невидимыми границами: имена и телефоны в ряд (ТЗ 2.2 п.5-10) */
+.head-tbl { border-collapse: collapse; margin-top: 12px; font-size: 13px; color: #334155; }
+.head-tbl td { border: 0; padding: 3px 20px 3px 0; vertical-align: baseline; white-space: nowrap; }
+.head-tbl .lbl { color: #64748b; }
 
 /* ---------- tabs ---------- */
 
@@ -338,4 +321,5 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .layout { padding: 0 10px; }
   .proj-grid { padding: 14px 12px; }
   .tab-body { padding: 16px 12px; }
+  .head-tbl td { white-space: normal; padding-right: 12px; }
 }
