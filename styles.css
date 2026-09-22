@@ -298,7 +298,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 .form-skel { max-width: 560px; }
 .form-skel label { display: block; font-size: 12.5px; color: #64748b; margin: 14px 0 5px; font-weight: 500; }
-.form-skel input, .form-skel textarea {
+.form-skel input, .form-skel textarea, .form-skel select {
   width: 100%;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
@@ -308,6 +308,43 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   color: #334155;
   background: #f8fafc;
 }
+
+/* попап «Добавить участника» (ТЗ 2.3.1 п.1) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, .45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+  z-index: 50;
+}
+.modal {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .15);
+  width: 400px;
+  max-width: 100%;
+  padding: 18px 20px;
+}
+.modal .form-skel { max-width: none; }
+.modal-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+.btn-primary {
+  background: #2563eb;
+  border: 1px solid #2563eb;
+  color: #fff;
+  border-radius: 4px;
+  padding: 7px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.btn-primary:hover { background: #1d4ed8; }
+
+.input-err { border-color: #dc2626 !important; }
 
 @media (max-width: 860px) {
   .layout { flex-direction: column; }

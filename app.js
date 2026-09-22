@@ -49,9 +49,68 @@ const noSim = (what) => `title="${esc(what)} — вне рамок симуля�
 /* ТЗ 2.3: «Редактировать» в каждом табе; ТЗ 2.3.1 п.1: «Добавить участника» */
 function tabTools(tabId) {
   return `<div class="tab-tools">
-      ${tabId === "osnovnoe" ? `<button class="btn-ghost" ${noSim("Добавление участника: Клиент / Руководитель проекта / Прораб / Представитель клиента")} type="button">Добавить участника</button>` : ""}
+      ${tabId === "osnovnoe" ? `<button class="btn-ghost" id="btn-add-person" type="button">Добавить участника</button>` : ""}
       <button class="btn-pale" ${noSim("Все поля раздела")} type="button">Редактировать</button>
     </div>`;
+}
+
+/* ---------------- попап «Добавить участника» (ТЗ 2.3.1 п.1) ---------------- */
+
+const ROLE_FIELDS = [
+  { key: "client", label: "Клиент" },
+  { key: "pm", label: "Руководитель проекта" },
+  { key: "foreman", label: "Прораб" },
+  { key: "client_rep", label: "Представитель клиента" },
+];
+
+function closeAddPerson() {
+  const m = document.getElementById("add-person-modal");
+  if (m) m.remove();
+  document.removeEventListener("keydown", escCloseAddPerson);
+}
+function escCloseAddPerson(e) { if (e.key === "Escape") closeAddPerson(); }
+
+function openAddPerson(p) {
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="modal-overlay" id="add-person-modal">
+      <div class="modal">
+        <div class="modal-title">Добавить участника</div>
+        <div class="form-skel">
+          <label>Роль</label>
+          <select id="pp-role">${ROLE_FIELDS.map((r) => `<option value="${r.key}">${r.label}</option>`).join("")}</select>
+          <label>Имя Фамилия</label>
+          <input id="pp-name" type="text" autocomplete="off">
+          <label>Телефон</label>
+          <input id="pp-phone" type="text" placeholder="+357 …" autocomplete="off">
+          <label>Telegram</label>
+          <input id="pp-tg" type="text" placeholder="@…" autocomplete="off">
+        </div>
+        <div class="modal-actions">
+          <button class="btn-ghost" id="pp-cancel" type="button">Отмена</button>
+          <button class="btn-primary" id="pp-save" type="button">Добавить</button>
+        </div>
+        <div class="note">Демо: участник добавляется в данные страницы, до перезагрузки.</div>
+      </div>
+    </div>`);
+
+  document.getElementById("pp-cancel").addEventListener("click", closeAddPerson);
+  document.getElementById("add-person-modal").addEventListener("click", (e) => {
+    if (e.target.id === "add-person-modal") closeAddPerson();
+  });
+  document.addEventListener("keydown", escCloseAddPerson);
+  document.getElementById("pp-save").addEventListener("click", () => {
+    const nameEl = document.getElementById("pp-name");
+    const name = nameEl.value.trim();
+    if (!name) { nameEl.classList.add("input-err"); nameEl.focus(); return; }
+    p[document.getElementById("pp-role").value] = {
+      name,
+      phone: document.getElementById("pp-phone").value.trim(),
+      tg: document.getElementById("pp-tg").value.trim(),
+    };
+    closeAddPerson();
+    render();
+  });
+  document.getElementById("pp-name").focus();
 }
 
 /* ---------------- рендереры табов (принимают проект p) ---------------- */
@@ -282,6 +341,9 @@ function render() {
 
     wrap.querySelectorAll(".tab").forEach((b) =>
       b.addEventListener("click", () => { location.hash = `#/${p.url}/${b.dataset.tab}`; }));
+
+    const addBtn = wrap.querySelector("#btn-add-person");
+    if (addBtn) addBtn.addEventListener("click", () => openAddPerson(p));
   } else {
     document.body.classList.remove("on-card");
     side.innerHTML = "";
