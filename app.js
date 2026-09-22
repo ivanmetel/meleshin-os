@@ -174,7 +174,9 @@ const TABS = [
 /* ---------------- шапка карточки (ТЗ 2.2) ---------------- */
 
 function headCard(p) {
+  // ТЗ 2.2: Назад | Название | Этап (п.3) + Состояние (п.4) + даты (п.11-12) | участники (п.5-8) и каналы (п.9-10) столбцом
   const personPill = (label, pp) => (pp ? `<span class="meta-pill"><span class="lbl">${label}:</span> ${fmtPerson(pp)}</span>` : "");
+  const dates = !p.start_date ? "" : (p.end_date ? `${fmtDate(p.start_date)} — ${fmtDate(p.end_date)}` : fmtDate(p.start_date));
   return `
     <div class="pg-head">
       <div class="pg-head-top">
@@ -182,6 +184,7 @@ function headCard(p) {
         <div class="pg-title">${esc(p.name)}
           ${stageChip(p.stage)}
           ${stateChip(p.state)}
+          ${dates ? `<span class="pg-dates">${dates}</span>` : ""}
         </div>
       </div>
       <div class="pg-meta">
@@ -189,9 +192,8 @@ function headCard(p) {
         ${personPill("Руководитель проекта", p.pm)}
         ${personPill("Прораб", p.foreman)}
         ${personPill("Представитель клиента", p.client_rep)}
-        ${p.tg_team ? `<span class="meta-pill"><span class="lbl">✈️ Telegram-канал команды:</span> ${esc(p.tg_team)}</span>` : ""}
-        ${p.tg_client ? `<span class="meta-pill"><span class="lbl">✈️ Telegram-канал клиента:</span> ${esc(p.tg_client)}</span>` : ""}
-        <span class="meta-pill"><span class="lbl">Даты:</span> ${fmtDate(p.start_date)} — ${fmtDate(p.end_date)}</span>
+        ${p.tg_team ? `<span class="meta-pill"><span class="lbl">Telegram-канал команды:</span> ${esc(p.tg_team)}</span>` : ""}
+        ${p.tg_client ? `<span class="meta-pill"><span class="lbl">Telegram-канал клиента:</span> ${esc(p.tg_client)}</span>` : ""}
       </div>
     </div>`;
 }
