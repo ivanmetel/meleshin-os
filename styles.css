@@ -107,7 +107,11 @@ a.btn-ghost { color: #334155; }
 .btn-pale[disabled] { cursor: not-allowed; }
 .btn-pale[disabled]:hover { background: #f8fafc; color: #94a3b8; }
 
-.head-edit { margin-left: auto; }
+.tab-tools { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 16px; }
+.tab-tools .btn-ghost { margin-right: auto; }
+
+.tbl-fields { max-width: 760px; }
+.tbl-fields .fld { width: 240px; color: #64748b; }
 
 .pg-title {
   font-size: 22px;
@@ -130,11 +134,11 @@ a.btn-ghost { color: #334155; }
   font-weight: 600;
   white-space: nowrap;
 }
-.chip-active   { background: #dcfce7; color: #16a34a; }
-.chip-pending  { background: #fef3c7; color: #b45309; }
-.chip-done     { background: #e2e8f0; color: #475569; }
-.chip-paused   { background: #ede9fe; color: #7c3aed; }
-.chip-undef    { background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; }
+.chip-initiated  { background: #fef3c7; color: #b45309; }
+.chip-started    { background: #dbeafe; color: #1d4ed8; }
+.chip-controlled { background: #dcfce7; color: #16a34a; }
+.chip-concluded  { background: #e2e8f0; color: #475569; }
+.chip-closed     { background: #f1f5f9; color: #64748b; }
 
 /* Этап (ТЗ 2.2 п.3) — контурный чип, отличимый от залитых чипов статуса */
 .chip-stage    { background: #fff; color: #475569; border: 1px solid #cbd5e1; }

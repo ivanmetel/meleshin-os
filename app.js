@@ -12,7 +12,15 @@ const STAGES = [
 ];
 const stageLabel = (id) => ((STAGES.find((s) => s.id === id) || {}).label) || "—";
 
-const STATUS_LABEL = { active: "Активный", pending: "Ожидание", done: "Завершён", paused: "Пауза" };
+/* ТЗ 2.2 п.4: Состояние */
+const STATES = [
+  { id: "initiated", label: "Инициированы" },
+  { id: "started", label: "Начаты" },
+  { id: "controlled", label: "На контроле" },
+  { id: "concluded", label: "Завершены" },
+  { id: "closed", label: "Закрыты" },
+];
+const stateLabel = (id) => ((STATES.find((s) => s.id === id) || {}).label) || "—";
 
 let filterStage = "all"; // "all" | id этапа
 
@@ -28,10 +36,23 @@ const fmtDate = (iso) => {
 const esc = (s) => String(s == null ? "" : s)
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-const statusChip = (s) => `<span class="chip chip-${esc(s)}">${esc(STATUS_LABEL[s] || s)}</span>`;
+/* ТЗ 2.2 п.5-8: участник — «Имя Фамилия | Телефон | Telegram» */
+const fmtPerson = (pp) => (!pp ? null : [pp.name, pp.phone, pp.tg].filter(Boolean).map(esc).join(" | "));
+
 const stageChip = (st) => `<span class="chip chip-stage" title="Этап — ТЗ 2.2 п.3">${esc(stageLabel(st))}</span>`;
+const stateChip = (st) => `<span class="chip chip-${esc(st)}" title="Состояние — ТЗ 2.2 п.4">${esc(stateLabel(st))}</span>`;
 
 const noSim = (what) => `title="${esc(what)} — вне рамок симуляции" onclick="return false"`;
+
+/* ---------------- панель кнопок таба ---------------- */
+
+/* ТЗ 2.3: «Редактировать» в каждом табе; ТЗ 2.3.1 п.1: «Добавить участника» */
+function tabTools(tabId) {
+  return `<div class="tab-tools">
+      ${tabId === "osnovnoe" ? `<button class="btn-ghost" ${noSim("Добавление участника: Клиент / Руководитель проекта / Прораб / Представитель клиента")} type="button">Добавить участника</button>` : ""}
+      <button class="btn-pale" ${noSim("Все поля раздела")} type="button">Редактировать</button>
+    </div>`;
+}
 
 /* ---------------- рендереры табов (принимают проект p) ---------------- */
 
@@ -46,6 +67,29 @@ function rPending(tzRef) {
 function rAvail(items) {
   return `<div class="avail"><b>Данные проекта в CRM (доступны для наполнения раздела):</b>
     <ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul></div>`;
+}
+
+/* ТЗ 2.3.1: Основное */
+function rMain(p) {
+  const frow = (label, valueHtml) => `<tr><td class="fld">${label}</td><td>${valueHtml}</td></tr>`;
+  const personCell = (pp) => (pp ? fmtPerson(pp) : `<span class="muted">—</span>`);
+  const plainCell = (v) => (v ? esc(v) : `<span class="muted">—</span>`);
+  const dateCell = (iso) => (iso ? fmtDate(iso) : `<span class="muted">—</span>`);
+  return `
+    <div class="tbl-wrap"><table class="tbl tbl-fields">
+      <tbody>
+        ${frow("Этап", stageChip(p.stage))}
+        ${frow("Состояние", stateChip(p.state))}
+        ${frow("Клиент", personCell(p.client))}
+        ${frow("Руководитель проекта", personCell(p.pm))}
+        ${frow("Прораб", personCell(p.foreman))}
+        ${frow("Представитель клиента", personCell(p.client_rep))}
+        ${frow("Telegram-канал команды", plainCell(p.tg_team))}
+        ${frow("Telegram-канал клиента", plainCell(p.tg_client))}
+        ${frow("Дата начала", dateCell(p.start_date))}
+        ${frow("Дата окончания", dateCell(p.end_date))}
+      </tbody>
+    </table></div>`;
 }
 
 function rDocs(p) {
@@ -117,14 +161,7 @@ function rPortal() {
 /* ---------------- определение табов ---------------- */
 
 const TABS = [
-  { id: "osnovnoe", label: "Основное", tz: "2.3.1",
-    render: (p) => rPending("2.3.1") + rAvail([
-      "Этап: " + stageLabel(p.stage) + " · Статус: " + (STATUS_LABEL[p.status] || p.status),
-      "Клиент: " + p.client + (p.foreman_name ? " · Ответственный прораб: " + p.foreman_name : ""),
-      "Даты: " + fmtDate(p.start_date) + " — " + fmtDate(p.end_date),
-      "Telegram-топик: " + p.telegram_topic_name,
-      "Итоги: смета " + fmtMoney(p.project_estimate_total) + ", поступило " + fmtMoney(p.project_income_total),
-    ]) },
+  { id: "osnovnoe", label: "Основное", tz: "2.3.1", render: rMain },
   { id: "dokumenty", label: "Документы", tz: "2.3.2", render: rDocs },
   { id: "grafik", label: "График", tz: "2.3.3", render: () => rPending("2.3.3") },
   { id: "finansy", label: "Финансы", tz: "2.3.4", render: rFinance },
@@ -134,25 +171,27 @@ const TABS = [
   { id: "kabinet-klienta", label: "Кабинет клиента", tz: "2.3.8", render: rPortal },
 ];
 
-/* ---------------- шапка карточки ---------------- */
+/* ---------------- шапка карточки (ТЗ 2.2) ---------------- */
 
 function headCard(p) {
-  // ТЗ 2.2: Назад | Редактировать | Название | Этап и статус рядом с названием | Telegram | Клиент | Прораб
+  const personPill = (label, pp) => (pp ? `<span class="meta-pill"><span class="lbl">${label}:</span> ${fmtPerson(pp)}</span>` : "");
   return `
     <div class="pg-head">
       <div class="pg-head-top">
         <a class="btn-ghost" href="#/${LIST_ROUTE}" title="Возврат к списку проектов">← Назад</a>
         <div class="pg-title">${esc(p.name)}
           ${stageChip(p.stage)}
-          ${statusChip(p.status)}
-          <span class="chip chip-undef" title="Форма статуса: .. / .. — ждёт решения по ТЗ">.. / ..</span>
+          ${stateChip(p.state)}
         </div>
-        <button class="btn-pale head-edit" ${noSim("Поля объекта")}>Редактировать</button>
       </div>
       <div class="pg-meta">
-        <a class="meta-pill" href="#" onclick="return false" title="Ссылка на топик проекта — демо">✈️ Открыть Telegram</a>
-        <span class="meta-pill"><span class="lbl">Клиент:</span> ${esc(p.client)}</span>
-        ${p.foreman_name ? `<span class="meta-pill"><span class="lbl">👷 Ответственный прораб:</span> ${esc(p.foreman_name)}</span>` : ""}
+        ${personPill("Клиент", p.client)}
+        ${personPill("Руководитель проекта", p.pm)}
+        ${personPill("Прораб", p.foreman)}
+        ${personPill("Представитель клиента", p.client_rep)}
+        ${p.tg_team ? `<span class="meta-pill"><span class="lbl">✈️ Telegram-канал команды:</span> ${esc(p.tg_team)}</span>` : ""}
+        ${p.tg_client ? `<span class="meta-pill"><span class="lbl">✈️ Telegram-канал клиента:</span> ${esc(p.tg_client)}</span>` : ""}
+        <span class="meta-pill"><span class="lbl">Даты:</span> ${fmtDate(p.start_date)} — ${fmtDate(p.end_date)}</span>
       </div>
     </div>`;
 }
@@ -163,10 +202,10 @@ function projCard(p) {
   return `
     <a class="proj-card" href="#/${p.url}/${DEFAULT_TAB}">
       <div class="pc-title">${esc(p.name)}</div>
-      <div class="pc-chips">${stageChip(p.stage)}${statusChip(p.status)}</div>
+      <div class="pc-chips">${stageChip(p.stage)}${stateChip(p.state)}</div>
       <div class="pc-meta">
-        <span><span class="lbl">Клиент:</span> ${esc(p.client)}</span>
-        ${p.foreman_name ? `<span><span class="lbl">Прораб:</span> ${esc(p.foreman_name)}</span>` : ""}
+        <span><span class="lbl">Клиент:</span> ${esc(p.client ? p.client.name : "—")}</span>
+        ${p.foreman ? `<span><span class="lbl">Прораб:</span> ${esc(p.foreman.name)}</span>` : ""}
         <span><span class="lbl">Даты:</span> ${fmtDate(p.start_date)} — ${fmtDate(p.end_date)}</span>
       </div>
     </a>`;
@@ -223,6 +262,7 @@ function render() {
 
   if (r.page === "card" && r.project) {
     const p = r.project;
+    const active = TABS.find((t) => t.id === r.tab);
     document.body.classList.add("on-card");
     side.innerHTML = sideRail();
     wrap.innerHTML = `
@@ -231,7 +271,7 @@ function render() {
         <nav class="tabs">
           ${TABS.map((t) => `<button class="tab${t.id === r.tab ? " active" : ""}" data-tab="${t.id}" type="button">${t.label}</button>`).join("")}
         </nav>
-        <div class="tab-body">${TABS.find((t) => t.id === r.tab).render(p)}</div>
+        <div class="tab-body">${tabTools(r.tab)}${active.render(p)}</div>
       </div>`;
 
     document.getElementById("crumb").innerHTML = `Проекты / <b>${esc(p.name)}</b>`;
