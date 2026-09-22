@@ -10,8 +10,16 @@ const DATA = {
    "start_date": "2026-09-15T00:00:00.000Z",
    "end_date": null,
    "telegram_topic_name": "Peyia Villa",
-   "client": { "name": "Марина Лебедева", "phone": "+357 99 223 344", "tg": "@mlebedeva_demo" },
-   "pm": { "name": "Анна Соколова", "phone": "+357 99 445 566", "tg": "@asokolova_demo" },
+   "client": {
+    "name": "Марина Лебедева",
+    "phone": "+357 99 223 344",
+    "tg": "@mlebedeva_demo"
+   },
+   "pm": {
+    "name": "Анна Соколова",
+    "phone": "+357 99 445 566",
+    "tg": "@asokolova_demo"
+   },
    "foreman": null,
    "client_rep": null,
    "tg_team": null,
@@ -45,7 +53,10 @@ const DATA = {
      "uploaded_by_name": "Администратор"
     }
    ],
-   "tasks": []
+   "tasks": [],
+   "vid_rabot": "Ремонт виллы",
+   "zametki": "",
+   "history": []
   },
   {
    "id": 7,
@@ -56,9 +67,21 @@ const DATA = {
    "start_date": "2026-06-05T00:00:00.000Z",
    "end_date": "2026-09-10T00:00:00.000Z",
    "telegram_topic_name": "Polis Apartment",
-   "client": { "name": "Александр Ветров", "phone": "+357 99 112 233", "tg": "@avetrov_demo" },
-   "pm": { "name": "Анна Соколова", "phone": "+357 99 445 566", "tg": "@asokolova_demo" },
-   "foreman": { "name": "Сергей Кравцов", "phone": "+357 99 778 899", "tg": "@skravtsov_demo" },
+   "client": {
+    "name": "Александр Ветров",
+    "phone": "+357 99 112 233",
+    "tg": "@avetrov_demo"
+   },
+   "pm": {
+    "name": "Анна Соколова",
+    "phone": "+357 99 445 566",
+    "tg": "@asokolova_demo"
+   },
+   "foreman": {
+    "name": "Сергей Кравцов",
+    "phone": "+357 99 778 899",
+    "tg": "@skravtsov_demo"
+   },
    "client_rep": null,
    "tg_team": "@meleshin_2607",
    "tg_client": "@meleshin_2607_client",
@@ -91,7 +114,10 @@ const DATA = {
      "uploaded_by_name": "Администратор"
     }
    ],
-   "tasks": []
+   "tasks": [],
+   "vid_rabot": "Ремонт квартиры под ключ",
+   "zametki": "",
+   "history": []
   },
   {
    "id": 6,
@@ -102,10 +128,26 @@ const DATA = {
    "start_date": "2026-02-10T00:00:00.000Z",
    "end_date": "2026-07-30T00:00:00.000Z",
    "telegram_topic_name": "Nicosia Office",
-   "client": { "name": "Андреас Пападопулос", "phone": "+357 99 334 455", "tg": "@apapadopulos_demo" },
-   "pm": { "name": "Анна Соколова", "phone": "+357 99 445 566", "tg": "@asokolova_demo" },
-   "foreman": { "name": "Дмитрий Гусев", "phone": "+357 99 556 677", "tg": "@dgusev_demo" },
-   "client_rep": { "name": "Елена Христодулу", "phone": "+357 99 667 788", "tg": "@ehristodoulou_demo" },
+   "client": {
+    "name": "Андреас Пападопулос",
+    "phone": "+357 99 334 455",
+    "tg": "@apapadopulos_demo"
+   },
+   "pm": {
+    "name": "Анна Соколова",
+    "phone": "+357 99 445 566",
+    "tg": "@asokolova_demo"
+   },
+   "foreman": {
+    "name": "Дмитрий Гусев",
+    "phone": "+357 99 556 677",
+    "tg": "@dgusev_demo"
+   },
+   "client_rep": {
+    "name": "Елена Христодулу",
+    "phone": "+357 99 667 788",
+    "tg": "@ehristodoulou_demo"
+   },
    "tg_team": "@meleshin_2604",
    "tg_client": null,
    "project_estimate_total": "62000",
@@ -137,7 +179,10 @@ const DATA = {
      "uploaded_by_name": "Администратор"
     }
    ],
-   "tasks": []
+   "tasks": [],
+   "vid_rabot": "Ремонт офиса",
+   "zametki": "",
+   "history": []
   }
  ]
 };
