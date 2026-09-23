@@ -364,6 +364,126 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 .input-err { border-color: #dc2626 !important; }
 
+/* ---------- раздел с кнопками в заголовке (состав работ) ---------- */
+
+/* "Редактировать" в шапке — реквизиты и участники (рекомендации 23.09, раздел 10 п.1) */
+.head-edit { margin-left: auto; white-space: nowrap; }
+
+.sect-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 24px 0 10px; }
+.sect-head .sect-title { margin: 0; }
+.sect-head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.search-inp {
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: #334155;
+  background: #f8fafc;
+  width: 250px;
+}
+
+/* ---------- конструктор состава (рекомендации 23.09, раздел 2) ---------- */
+
+.comp-edit input {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: #334155;
+  background: #fff;
+}
+.comp-edit input.inp-unit { width: 80px; }
+.comp-edit input.inp-num { width: 90px; text-align: right; }
+.row-acts { white-space: nowrap; text-align: right; }
+.row-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: #64748b;
+  margin-left: 4px;
+}
+.row-btn:hover { color: #1e293b; background: #f8fafc; }
+.comp-foot { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.comp-foot .spacer { flex: 1; }
+
+/* ---------- переключатели вида и фильтры внутри табов ---------- */
+
+.subchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.flt-sel {
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: #475569;
+  background: #f8fafc;
+}
+.svod-src { font-size: 12px; color: #94a3b8; }
+.fin-note { margin: 0 0 14px; }
+
+/* ---------- статусы задач (рекомендации 23.09, раздел 5) ---------- */
+
+.chip-t-new      { background: #e0f2fe; color: #0369a1; }
+.chip-t-working  { background: #dbeafe; color: #1d4ed8; }
+.chip-t-review   { background: #fef3c7; color: #b45309; }
+.chip-t-fix      { background: #fee2e2; color: #dc2626; }
+.chip-t-done     { background: #dcfce7; color: #16a34a; }
+.chip-t-canceled { background: #f1f5f9; color: #64748b; }
+.chip-overdue    { background: #fee2e2; color: #dc2626; }
+
+/* ---------- статусы документов (рекомендации 23.09, раздел 6) ---------- */
+
+.chip-doc-received  { background: #e2e8f0; color: #475569; }
+.chip-doc-processing{ background: #dbeafe; color: #1d4ed8; }
+.chip-doc-processed { background: #dcfce7; color: #16a34a; }
+.chip-doc-draft     { background: #f1f5f9; color: #64748b; }
+.chip-doc-ready     { background: #fef3c7; color: #b45309; }
+.chip-doc-sent      { background: #dcfce7; color: #16a34a; }
+.chip-doc-approved  { background: #dcfce7; color: #16a34a; }
+
+/* ---------- бюджеты: версии, цены, итоги (рекомендации 23.09, разделы 3-4) ---------- */
+
+.price-inp {
+  width: 120px;
+  text-align: right;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: #334155;
+  background: #fff;
+}
+.budget-summary { margin-top: 12px; font-size: 13px; color: #475569; display: flex; flex-direction: column; gap: 4px; }
+.budget-summary b { color: #1e293b; }
+.fix-cap { font-size: 13px; color: #475569; margin-bottom: 10px; }
+.fix-cap b { color: #1e293b; }
+.delta-chip {
+  display: inline-block;
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+.delta-changed { color: #b45309; border-color: #fcd34d; background: #fffbeb; }
+.delta-added   { color: #1d4ed8; border-color: #93c5fd; background: #eff6ff; }
+
+/* ---------- операции: приход/расход ---------- */
+
+.dir-in  { color: #16a34a; font-weight: 600; }
+.dir-out { color: #dc2626; font-weight: 600; }
+.tbl td.pos { color: #16a34a; }
+.tbl td.neg { color: #dc2626; }
+
 @media (max-width: 860px) {
   .layout { flex-direction: column; }
   .side { width: auto; padding: 14px 0 0; }
