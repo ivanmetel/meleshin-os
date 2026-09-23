@@ -231,19 +231,6 @@ a.btn-ghost { color: #334155; }
 .pending .mark { font-size: 15px; font-weight: 600; color: #64748b; }
 .pending .ref { font-size: 12.5px; margin-top: 6px; }
 
-.avail {
-  margin-top: 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  padding: 12px 16px;
-  font-size: 13px;
-  color: #475569;
-}
-.avail b { color: #1e293b; }
-.avail ul { margin: 6px 0 0 16px; }
-.avail li { margin: 3px 0; }
-
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -366,9 +353,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 /* ---------- раздел с кнопками в заголовке (состав работ) ---------- */
 
-/* "Редактировать" в шапке — реквизиты и участники (рекомендации 23.09, раздел 10 п.1) */
-.head-edit { margin-left: auto; white-space: nowrap; }
-
 .sect-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 24px 0 10px; }
 .sect-head .sect-title { margin: 0; }
 .sect-head-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -415,6 +399,60 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 /* ---------- переключатели вида и фильтры внутри табов ---------- */
 
 .subchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+
+/* ---------- вкладки управления документами внутри таба (ТЗ 2.2.3) ---------- */
+
+.dtabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.dtab {
+  border: 0;
+  background: transparent;
+  padding: 9px 12px 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.dtab:hover { color: #1e293b; }
+.dtab.active { color: #2563eb; border-bottom-color: #2563eb; font-weight: 600; }
+
+/* кликабельные строки реестра (карточка задачи / документа) */
+.tbl tr.row-click { cursor: pointer; }
+.tbl tr.row-click:hover td { background: #f8fafc; }
+
+/* ---------- действия бюджетов: Зафиксировать / Согласовать / Сформировать КП ---------- */
+
+.budget-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
+
+/* отбор позиций КП (ТЗ 2.2.5.4) */
+.chk-list { border: 1px solid #e2e8f0; border-radius: 4px; max-height: 320px; overflow-y: auto; }
+.chk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+.chk-row:last-child { border-bottom: 0; }
+.chk-row:hover { background: #f8fafc; }
+.chk-row input { accent-color: #2563eb; }
+.chk-row .chk-name { flex: 1; min-width: 0; }
+.chk-row .num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chk-row .muted { color: #94a3b8; }
+.kp-total { margin-top: 10px; font-size: 13px; color: #475569; display: flex; flex-direction: column; gap: 3px; }
+.kp-total b { color: #1e293b; }
+
+/* широкая модалка: карточка КП, отбор позиций */
+.modal.wide { width: 660px; }
 .flt-sel {
   border: 1px solid #e2e8f0;
   border-radius: 4px;
@@ -476,6 +514,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 }
 .delta-changed { color: #b45309; border-color: #fcd34d; background: #fffbeb; }
 .delta-added   { color: #1d4ed8; border-color: #93c5fd; background: #eff6ff; }
+.delta-check   { color: #b45309; border-color: #fcd34d; background: #fffbeb; }
+.delta-muted   { color: #64748b; border-color: #cbd5e1; background: #f8fafc; }
 
 /* ---------- операции: приход/расход ---------- */
 
