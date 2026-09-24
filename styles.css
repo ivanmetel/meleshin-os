@@ -140,7 +140,7 @@ a.btn-ghost { color: #334155; }
 .chip-concluded  { background: #e2e8f0; color: #475569; }
 .chip-closed     { background: #f1f5f9; color: #64748b; }
 
-/* Этап (ТЗ 2.1 п.3) — контурный чип, отличимый от залитых чипов статуса */
+/* Этап (ТЗ "Карточка проекта", шапка п.3) — контурный чип, отличимый от залитых чипов статуса */
 .chip-stage    { background: #fff; color: #475569; border: 1px solid #cbd5e1; }
 
 /* ---------- страница "Все проекты" ---------- */
@@ -189,7 +189,7 @@ a.btn-ghost { color: #334155; }
 
 .pg-dates { font-size: 14px; color: #64748b; font-weight: 500; }
 
-/* участники и каналы — таблица с невидимыми границами: имена и телефоны в ряд (ТЗ 2.1 п.5-10) */
+/* участники и каналы — таблица с невидимыми границами: имена и телефоны в ряд (ТЗ "Карточка проекта", шапка п.5-10) */
 .head-tbl { border-collapse: collapse; margin-top: 12px; font-size: 13px; color: #334155; }
 .head-tbl td { border: 0; padding: 3px 20px 3px 0; vertical-align: baseline; white-space: nowrap; }
 .head-tbl .lbl { color: #64748b; }
@@ -230,6 +230,23 @@ a.btn-ghost { color: #334155; }
 }
 .pending .mark { font-size: 15px; font-weight: 600; color: #64748b; }
 .pending .ref { font-size: 12.5px; margin-top: 6px; }
+
+/* компактная заглушка внутри таба (элементы [ ] перечня "Объект") */
+.pending-row { margin-top: 10px; }
+.pending.compact {
+  padding: 10px 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  text-align: left;
+  color: #64748b;
+}
+.pending.compact .mark { flex: none; }
+.pending.compact .ref { margin-top: 2px; }
+
+/* "Название" в окне реквизитов: YYNN-префикс не редактируется */
+.ed-name-row { display: flex; gap: 8px; }
+.ed-name-row input:first-child { flex: 0 0 74px; background: #eef2f7; color: #64748b; }
 
 .tiles {
   display: grid;
@@ -294,7 +311,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   background: #f8fafc;
 }
 
-/* модалки: «Редактировать» (ТЗ 2.2.1.1), «Добавить проект» (ТЗ 1) */
+/* модалки: «Редактировать» (ТЗ "Основное", окно реквизитов), «Добавить проект» (ТЗ "Карточка проекта", новый проект) */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -320,7 +337,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
-/* блок участника в окне «Редактировать» (ТЗ 2.2.1.1 п.15) */
+/* блок участника в окне «Редактировать» (ТЗ "Основное", окно реквизитов п.15) */
 .person-blk {
   border: 1px solid #e2e8f0;
   border-radius: 4px;
@@ -333,7 +350,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .ed-add-row select { flex: 1; }
 .ed-add-row .btn-ghost { white-space: nowrap; }
 
-/* «Добавить проект» — заголовок страницы «Все проекты» (ТЗ 1) */
+/* «Добавить проект» — заголовок страницы «Все проекты» (ТЗ "Карточка проекта", новый проект) */
 .head-add { margin-left: auto; }
 
 .btn-primary {
@@ -398,7 +415,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 .subchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
 
-/* ---------- вкладки управления документами внутри таба (ТЗ 2.2.3) ---------- */
+/* ---------- вкладки управления документами внутри таба (ТЗ "Документы") ---------- */
 
 .dtabs {
   display: flex;
@@ -428,7 +445,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 .budget-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
 
-/* отбор позиций КП (ТЗ 2.2.5.4) */
+/* отбор позиций КП (ТЗ "Финансы", КП) */
 .chk-list { border: 1px solid #e2e8f0; border-radius: 4px; max-height: 320px; overflow-y: auto; }
 .chk-row {
   display: flex;

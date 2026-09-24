@@ -18,6 +18,7 @@ const DATA = {
    "tg_client": null,
    "vid_rabot": "Ремонт виллы",
    "zametki": "",
+   "rooms": ["Кухня", "Санузел"],
    "works": [
     { "id": 1, "room": "Весь объект", "work": "Демонтажные работы", "unit": "м²", "qty": 210, "price_int": null, "price_cli": null },
     { "id": 2, "room": "Кухня", "work": "Подготовка стен", "unit": "м²", "qty": 24, "price_int": null, "price_cli": null },
@@ -54,6 +55,7 @@ const DATA = {
    "tg_client": "@meleshin_2607_client",
    "vid_rabot": "Ремонт квартиры под ключ",
    "zametki": "Парковка во дворе по разрешению; ключи у прораба.",
+   "rooms": ["Кухня", "Коридор", "Санузел"],
    "works": [
     { "id": 1, "room": "Кухня", "work": "Подготовка стен", "unit": "м²", "qty": 25, "price_int": 8, "price_cli": 12 },
     { "id": 2, "room": "Коридор", "work": "Установка розеток", "unit": "шт", "qty": 6, "price_int": 15, "price_cli": 25 },
@@ -188,6 +190,7 @@ const DATA = {
     { "date": "2026-06-30", "dir": "out", "purpose": "Зарплата за июнь: Соколова (табели)", "party": "Анна Соколова", "amount": 88, "method": "Внутренний перевод", "status": "confirmed", "doc": null },
     { "date": "2026-07-02", "dir": "out", "purpose": "Доставка материалов", "party": "Cyprus Logistics Ltd", "amount": 780, "method": "Карта", "status": "confirmed", "doc": null },
     { "date": "2026-07-15", "dir": "out", "purpose": "Материалы: плитка, клей", "party": "TileHouse Ltd", "amount": 3900, "method": "Банковский перевод", "status": "confirmed", "doc": "Счёт TileHouse 2601" },
+    { "date": "2026-07-20", "type": "refund", "dir": "in", "purpose": "Возврат за брак плитки", "party": "TileHouse Ltd", "amount": 400, "method": "Банковский перевод", "status": "confirmed", "doc": "Счёт TileHouse 2601", "refund_of": "Материалы: плитка, клей" },
     { "date": "2026-09-20", "dir": "out", "purpose": "Электрика: кабель-канал", "party": "ElecPro Ltd", "amount": 560, "method": "Карта", "status": "unconfirmed", "doc": null }
    ],
    "history": []
@@ -208,6 +211,7 @@ const DATA = {
    "tg_client": null,
    "vid_rabot": "Ремонт офиса",
    "zametki": "Гарантия 24 месяца с 30.07.2026.",
+   "rooms": ["Переговорная", "Кухонная зона"],
    "works": [
     { "id": 1, "room": "Весь объект", "work": "Демонтажные работы", "unit": "м²", "qty": 150, "price_int": 7, "price_cli": 11 },
     { "id": 2, "room": "Весь объект", "work": "Электромонтажные работы", "unit": "шт", "qty": 180, "price_int": 24, "price_cli": 38 },
