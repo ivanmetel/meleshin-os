@@ -26,8 +26,8 @@ const DATA = {
    "fix_int": [],
    "fix_cli": [],
    "docs": [
-    { "name": "Обмерный план.pdf", "type": "Проектная документация", "dir": "in", "party": "Марина Лебедева", "date": "2026-09-16", "status": "received", "version": "v1" },
-    { "name": "Референсы. Подборка.pdf", "type": "Референсы", "dir": "in", "party": "Марина Лебедева", "date": "2026-09-17", "status": "processing", "version": "v1" },
+    { "name": "Обмерный план.pdf", "type": "Проектная документация", "dir": "in", "party": "Марина Лебедева", "date": "2026-09-16", "status": "received" },
+    { "name": "Референсы. Подборка.pdf", "type": "Референсы", "dir": "in", "party": "Марина Лебедева", "date": "2026-09-17", "status": "processing" },
     { "name": "Коммерческое предложение.pdf", "type": "КП", "dir": "out", "party": "Марина Лебедева", "date": null, "status": "draft", "version": "v1" }
    ],
    "tasks": [
@@ -121,8 +121,8 @@ const DATA = {
     }
    ],
    "docs": [
-    { "name": "План помещения.pdf", "type": "Проектная документация", "dir": "in", "party": "Александр Ветров", "date": "2026-06-05", "status": "processed", "version": "v1" },
-    { "name": "Электрика. Схема.pdf", "type": "Проектная документация", "dir": "in", "party": "Александр Ветров", "date": "2026-06-11", "status": "processed", "version": "v1" },
+    { "name": "План помещения.pdf", "type": "Проектная документация", "dir": "in", "party": "Александр Ветров", "date": "2026-06-05", "status": "processed" },
+    { "name": "Электрика. Схема.pdf", "type": "Проектная документация", "dir": "in", "party": "Александр Ветров", "date": "2026-06-11", "status": "processed" },
     { "name": "КП v1 — 2607. Polis Apartment", "type": "КП", "dir": "out", "party": "Александр Ветров", "date": "2026-06-10", "date_doc": "2026-06-09", "status": "sent", "version": "v1",
       "kp": { "extra": false, "rows": [
         { "wid": 3, "room": "Весь объект", "work": "Демонтажные работы", "unit": "м²", "qty": 68, "price": 11 },
@@ -244,11 +244,11 @@ const DATA = {
     }
    ],
    "docs": [
-    { "name": "Рабочая документация. Комплект.pdf", "type": "Проектная документация", "dir": "in", "party": "Никос Георгиу (проектировщик)", "date": "2026-02-12", "status": "processed", "version": "v1" },
+    { "name": "Рабочая документация. Комплект.pdf", "type": "Проектная документация", "dir": "in", "party": "Никос Георгиу (проектировщик)", "date": "2026-02-12", "status": "processed" },
     { "name": "Счёт №1 (аванс).pdf", "type": "Счёт", "dir": "out", "party": "Андреас Пападопулос", "date": "2026-02-14", "status": "sent", "version": "v1", "amount": 18000 },
     { "name": "Счёт №2 (финальный).pdf", "type": "Счёт", "dir": "out", "party": "Андреас Пападопулос", "date": "2026-04-28", "status": "sent", "version": "v1", "amount": 17548 },
     { "name": "Отчёт о завершении работ.pdf", "type": "Отчёт", "dir": "out", "party": "Андреас Пападопулос", "date": "2026-07-28", "status": "sent", "version": "v1" },
-    { "name": "Акт приёмки.pdf", "type": "Акт", "dir": "in", "party": "Андреас Пападопулос", "date": "2026-07-30", "status": "received", "version": "v1" }
+    { "name": "Акт приёмки.pdf", "type": "Акт", "dir": "in", "party": "Андреас Пападопулос", "date": "2026-07-30", "status": "received" }
    ],
    "tasks": [
     { "num": 1, "title": "Передать гарантийные документы", "author": "Анна Соколова", "created": "2026-07-25", "deadline": "2026-07-30", "assignee": "Дмитрий Гусев", "status": "done" },

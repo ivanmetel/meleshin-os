@@ -673,18 +673,27 @@ function openTaskCard(p, t) {
 /* ---------------- Документы: один реестр, вкладки управления (ТЗ 2.2.3) ---------------- */
 
 function rDocs(p) {
-  const list = (p.docs || []).filter((d) => docDir === "all" || d.dir === docDir);
+  const all = p.docs || [];
+  const list = all.filter((d) => docDir === "all" || d.dir === docDir);
+  // ТЗ 2.2.3: вкладка направления задаёт контекст управления, а не фильтр строк —
+  // свой набор столбцов и своё событие даты
+  const CTX = {
+    all: { party: "Корреспондент", date: "Дата", ver: true, dir: true },
+    in: { party: "От кого", date: "Дата получения", ver: false, dir: false },
+    out: { party: "Кому", date: "Дата отправки", ver: true, dir: false },
+    int: { party: "Автор", date: "Дата документа", ver: true, dir: false },
+  }[docDir];
   const body = list.map((d, i) => {
     const st = DOC_STATUSES[d.status] || { label: d.status, cls: "" };
-    return `<tr class="row-click" data-doc="${(p.docs || []).indexOf(d)}" title="Открыть карточку документа">
+    return `<tr class="row-click" data-doc="${all.indexOf(d)}" title="Открыть карточку документа">
       <td>${i + 1}</td>
-      ${docDir === "all" ? `<td class="muted">${dirNoun[d.dir]}</td>` : ""}
+      ${CTX.dir ? `<td class="muted">${dirNoun[d.dir]}</td>` : ""}
       <td>${esc(d.name)}${d.kp ? ` <span class="delta-chip delta-added">КП</span>` : ""}</td>
       <td>${esc(d.type)}</td>
       <td>${esc(d.party)}</td>
       <td class="muted">${fmtDate(d.date)}</td>
+      ${CTX.ver ? `<td class="muted">${esc(d.version || "—")}</td>` : ""}
       <td><span class="chip ${st.cls}">${esc(st.label)}</span></td>
-      <td class="muted">${esc(d.version || "—")}</td>
     </tr>`;
   }).join("");
   return `
@@ -694,11 +703,11 @@ function rDocs(p) {
     </div>
     ${list.length
       ? `<div class="tbl-wrap"><table class="tbl">
-          <thead><tr><th>#</th>${docDir === "all" ? "<th>Направление</th>" : ""}<th>Документ</th><th>Тип</th><th>От кого или кому</th><th>Дата получения или отправки</th><th>Статус</th><th>Версия</th></tr></thead>
+          <thead><tr><th>#</th>${CTX.dir ? "<th>Направление</th>" : ""}<th>Документ</th><th>Тип</th><th>${CTX.party}</th><th>${CTX.date}</th>${CTX.ver ? "<th>Версия</th>" : ""}<th>Статус</th></tr></thead>
           <tbody>${body}</tbody>
         </table></div>`
       : `<div class="empty">Документов нет</div>`}
-    <div class="note">Все / Входящие / Исходящие / Внутренние — вкладки управления одного реестра документов проекта; тип документа, направление и статус — отдельные признаки. Неотправленный исходящий документ: пустая дата отправки, статус "Черновик" или "Готов к отправке". Регистрация входящего не означает его принятия; загрузка файла не устанавливает "Отправлен". КП и согласованный Бюджет клиента — типы исходящих документов; зафиксированная версия и её выгрузка — здесь, со ссылкой на источник.</div>`;
+    <div class="note">Вкладка направления — контекст управления: свои столбцы, своё событие даты и свой жизненный цикл. Входящие — полученное: дата получения, статусы "Получен → В обработке → Обработан"; регистрация не означает принятия. Исходящие — составленное компанией: дата отправки заполняется событием отправки, пустая дата — не отправлен. Внутренние — служебные: утверждение, отправки нет. Версия — номер редакции, составленной компанией (КП v1 → v2); входящие версий не имеют — новая редакция от контрагента регистрируется новым документом. КП и зафиксированные версии бюджетов — здесь с выгрузкой, со ссылкой на источник.</div>`;
 }
 
 /* карточка документа: клик по строке реестра */
@@ -706,9 +715,13 @@ function openDocCard(p, d) {
   const st = DOC_STATUSES[d.status] || { label: d.status, cls: "" };
   const frow = (label, valueHtml) => `<tr><td class="fld">${label}</td><td>${valueHtml}</td></tr>`;
   const plain = (v) => (v ? esc(v) : `<span class="muted">—</span>`);
+  // ТЗ 2.2.3: названия полей следуют направлению; версия — только у исходящих и внутренних
+  const partyLabel = { in: "От кого", out: "Кому", int: "Автор" }[d.dir] || "Корреспондент";
+  const dateLabel = d.dir === "in" ? "Дата получения" : "Дата отправки";
+  const hasVersion = d.dir !== "in";
   const cycle = {
     in: "Получен → В обработке → Обработан. Регистрация входящего не означает принятия обязательства или согласия с содержанием.",
-    out: "Черновик → Готов к отправке → Отправлен. Загрузка файла не устанавливает \"Отправлен\"; ответ адресата — отдельное событие.",
+    out: "Черновик → Готов к отправке → Отправлен. Загрузка файла не устанавливает \"Отправлен\"; дата отправки заполняется событием отправки.",
     int: "Черновик → Утверждён, если виду документа требуется утверждение.",
   }[d.dir] || "";
   let kpBlock = "";
@@ -747,11 +760,11 @@ function openDocCard(p, d) {
           ${frow("Название", esc(d.name))}
           ${frow("Тип", esc(d.type))}
           ${frow("Направление", dirNoun[d.dir] || "—")}
-          ${frow("От кого или кому", plain(d.party))}
+          ${frow(partyLabel, plain(d.party))}
           ${frow("Дата документа", plain(d.date_doc ? fmtDate(d.date_doc) : null))}
-          ${frow("Дата получения или отправки", plain(d.date ? fmtDate(d.date) : null))}
+          ${d.dir !== "int" ? frow(dateLabel, plain(d.date ? fmtDate(d.date) : null)) : ""}
           ${frow("Статус", `<span class="chip ${st.cls}">${esc(st.label)}</span>`)}
-          ${frow("Версия", plain(d.version))}
+          ${hasVersion ? frow("Версия", plain(d.version)) : ""}
           ${d.file ? frow("Вложение", esc(d.file)) : ""}
           ${d.uploaded_by ? frow("Загрузил сотрудник", esc(d.uploaded_by)) : ""}
           ${d.link_work ? frow("Связь с работой состава", esc(d.link_work)) : ""}
@@ -768,10 +781,12 @@ function openDocCard(p, d) {
   if (bex) bex.addEventListener("click", () => exportPdf(budgetHtml(p, d)));
 }
 
-/* ТЗ 2.2.3: "Добавить документ" — карточка документа */
+/* ТЗ 2.2.3: "Добавить документ" — карточка документа; вкладка задаёт направление по умолчанию,
+   названия полей и события следуют направлению */
 function openAddDoc(p) {
   const works = p.works || [];
   const tasks = p.tasks || [];
+  const defDir = docDir !== "all" ? docDir : "in";
   mountModal(`
     <div class="modal">
       <div class="modal-title">Добавить документ</div>
@@ -781,18 +796,19 @@ function openAddDoc(p) {
         <label>Тип</label>
         <select id="dc-type">${DOC_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select>
         <label>Направление</label>
-        <select id="dc-dir">${DOC_DIRS.map((d) => `<option value="${d.id}">${esc(d.label)}</option>`).join("")}</select>
-        <label>От кого или кому</label>
+        <select id="dc-dir">${DOC_DIRS.map((d) => `<option value="${d.id}"${d.id === defDir ? " selected" : ""}>${esc(d.label)}</option>`).join("")}</select>
+        <label id="lb-party">От кого</label>
         <input id="dc-party" type="text" autocomplete="off">
         <label>Дата документа</label>
         <input id="dc-date-doc" type="date">
-        <label>Дата получения или отправки</label>
+        <label id="lb-date">Дата получения</label>
         <input id="dc-date" type="date">
-        <label>Версия</label>
+        <div id="dc-date-hint" class="svod-src" style="margin-top:4px"></div>
+        <label id="lb-version">Версия</label>
         <input id="dc-version" type="text" autocomplete="off" value="v1">
         <label>Вложение (имя файла)</label>
         <input id="dc-file" type="text" autocomplete="off" placeholder="document.pdf">
-        <label>Загрузил сотрудник (у входящего — отдельное поле от отправителя)</label>
+        <label>Загрузил сотрудник (у входящего — не отправитель)</label>
         <input id="dc-uploaded" type="text" autocomplete="off">
         <label>Связь с работой состава</label>
         <select id="dc-work"><option value="">— без связи</option>${works.map((w) => `<option value="${esc(workName(w))}">${esc(workName(w))}</option>`).join("")}</select>
@@ -807,8 +823,33 @@ function openAddDoc(p) {
         <button class="btn-ghost" id="dc-cancel" type="button">Отмена</button>
         <button class="btn-primary" id="dc-save" type="button">Добавить</button>
       </div>
-      <div class="note">Демо: документ добавляется в данные страницы, до перезагрузки. Направление задаёт стартовый статус: входящий — "Получен", исходящий и внутренний — "Черновик".</div>
+      <div class="note">Демо: документ добавляется в данные страницы, до перезагрузки. Направление задаёт стартовый статус: входящий — "Получен", исходящий и внутренний — "Черновик". Версия — номер редакции, составленной компанией: есть у исходящих и внутренних; входящие версий не имеют — новая редакция от контрагента регистрируется новым документом.</div>
     </div>`);
+
+  // названия полей следуют выбранному направлению (ТЗ 2.2.3)
+  const relabel = () => {
+    const dir = document.getElementById("dc-dir").value;
+    const partyLb = { in: "От кого", out: "Кому", int: "Автор" }[dir] || "Корреспондент";
+    const dateLb = { in: "Дата получения", out: "Дата отправки" }[dir];
+    document.getElementById("lb-party").textContent = partyLb;
+    const dateRow = document.getElementById("lb-date");
+    const dateInp = document.getElementById("dc-date");
+    const hint = document.getElementById("dc-date-hint");
+    dateRow.style.display = dateLb ? "" : "none";
+    dateInp.style.display = dateLb ? "" : "none";
+    hint.style.display = dateLb ? "" : "none";
+    if (dateLb) {
+      dateRow.textContent = dateLb;
+      hint.textContent = dir === "in" ? "Заполняется при регистрации получения" : "Заполняется событием отправки; пустая — не отправлен";
+    }
+    const verRow = document.getElementById("lb-version");
+    const verInp = document.getElementById("dc-version");
+    const showVer = dir !== "in";
+    verRow.style.display = showVer ? "" : "none";
+    verInp.style.display = showVer ? "" : "none";
+  };
+  document.getElementById("dc-dir").addEventListener("change", relabel);
+  relabel();
 
   document.getElementById("dc-cancel").addEventListener("click", closeAnyModal);
   document.getElementById("dc-save").addEventListener("click", () => {
