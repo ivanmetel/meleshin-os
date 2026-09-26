@@ -513,6 +513,27 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   color: #334155;
   background: #fff;
 }
+.k-inp {
+  width: 64px;
+  text-align: right;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 6px;
+  font: inherit;
+  font-size: 13px;
+  color: #334155;
+  background: #fff;
+}
+.cmt-inp {
+  width: 140px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: #334155;
+  background: #fff;
+}
 .budget-summary { margin-top: 12px; font-size: 13px; color: #475569; display: flex; flex-direction: column; gap: 4px; }
 .budget-summary b { color: #1e293b; }
 .fix-cap { font-size: 13px; color: #475569; margin-bottom: 10px; }
