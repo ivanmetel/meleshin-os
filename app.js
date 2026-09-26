@@ -1503,8 +1503,9 @@ function rCalc(p) {
     <div class="sect-head" style="margin-top:12px"><div class="sect-title">1. Строительно-монтажные и отделочные работы</div></div>
     <div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th>${k2h}<th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th></tr></thead>
-      <tbody>${wrows || `<tr><td colspan="13" class="muted">Состав не задан — позиции добавляются в "Основном"</td></tr>`}</tbody>
+      <tbody>${wrows || `<tr><td colspan="13" class="muted">Состав не задан — добавьте строку или задайте позиции в "Основном"</td></tr>`}</tbody>
     </table></div>
+    <div class="comp-foot"><button class="btn-ghost" id="work-add" type="button">Добавить строку</button><span class="svod-src">позиция создаётся в общем составе — появляется и в "Основном"</span></div>
     <div class="sect-head"><div class="sect-title">2. Материалы</div><div class="svod-src">общая предварительная оценка; закупки и отчётность по факту начинаются при выполнении работ</div></div>
     <div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>#</th><th>Материал</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th>${k2h}<th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th><th></th></tr></thead>
@@ -1524,7 +1525,7 @@ function rCalc(p) {
         ? `<div>Прирост от Коэф. 2 (${esc(p.coef2.purpose || "вознаграждение дизайнера")}): <b>${fmtM2(tt.gain)}</b> — плановый расход; в цену клиенту второй раз не добавляется</div>`
         : `<div>Коэф. 2 не добавлен: цена за ед. = цене единицы до Коэф. 2</div>`}
     </div>
-    <div class="note">Формулы строки: Себестоимость = ROUND(Q × C, 2); Цена единицы до Коэф. 2 = ROUND(C × K1, 2); Цена за ед. = ROUND(Цена до Коэф. 2 × K2, 2); Стоимость строки = ROUND(Q × Цена за ед., 2). Промежуточное округление до центов — правило воспроизводимого расчёта; итоги — суммы округлённых строк. Цена продажи вручную не заменяется: коммерческое решение выражается изменением коэффициентов. Состав и количества — из "Основного"; правка из расчёта открывает ту же позицию, копии не создаётся.</div>`;
+    <div class="note">Формулы строки: Себестоимость = ROUND(Q × C, 2); Цена единицы до Коэф. 2 = ROUND(C × K1, 2); Цена за ед. = ROUND(Цена до Коэф. 2 × K2, 2); Стоимость строки = ROUND(Q × Цена за ед., 2). Промежуточное округление до центов — правило воспроизводимого расчёта; итоги — суммы округлённых строк. Цена продажи вручную не заменяется: коммерческое решение выражается изменением коэффициентов. Состав и количества — из "Основного"; строка добавляется здесь или в "Основном" в один и тот же состав; правка из расчёта открывает ту же позицию, копии не создаётся.</div>`;
 }
 
 /* Сводный — вычисляемое представление (ТЗ "Финансы", Сводный: 14 показателей) */
@@ -2199,6 +2200,65 @@ function rFinance(p) {
       : rOps(p)}`;
 }
 
+/* ТЗ "Финансы", расчёт: добавление позиции состава из расчёта — тот же носитель, что и в "Основном" */
+function openWorkAdd(p) {
+  const rooms = roomOptions(p);
+  const elemSel = (roomName) => {
+    const els = roomName && roomName !== ROOM_ANY ? roomElements(p, roomName).map((e) => e.name) : [];
+    return `<select id="wa-el"><option value="">—</option>${els.map((e) => `<option value="${esc(e)}">${esc(e)}</option>`).join("")}</select>`;
+  };
+  mountModal(`
+    <div class="modal">
+      <div class="modal-title">Добавить позицию состава</div>
+      <div class="form-skel">
+        <label>Стадия</label>
+        <select id="wa-stage">${WORK_STAGES.map((s) => `<option value="${s.id}"${s.id === 1 ? " selected" : ""}>${s.id}. ${esc(s.label)}</option>`).join("")}</select>
+        <label>Помещение</label>
+        <select id="wa-room">${rooms.map((r) => `<option value="${esc(r)}"${r === ROOM_ANY ? " selected" : ""}>${esc(r)}</option>`).join("")}</select>
+        <label>Элемент, часть или изделие</label>
+        <div id="wa-el-wrap">${elemSel(ROOM_ANY)}</div>
+        <label>Работа</label>
+        <input id="wa-work" type="text" autocomplete="off">
+        <label>Ед.</label>
+        <input id="wa-unit" type="text" autocomplete="off">
+        <label>Кол&#8209;во</label>
+        <input id="wa-qty" type="number" min="0" step="any">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="wa-cancel" type="button">Отмена</button>
+        <button class="btn-primary" id="wa-save" type="button">Добавить</button>
+      </div>
+      <div class="note">Позиция создаётся в том же составе, что и в "Основном": появляется в обоих представлениях, копии не создаётся. Закупочная цена и коэффициенты — пустые: новая позиция в расчёте не оценена до их ввода.</div>
+    </div>`);
+  document.getElementById("wa-room").addEventListener("change", (e) => {
+    document.getElementById("wa-el-wrap").innerHTML = elemSel(e.target.value);
+  });
+  document.getElementById("wa-cancel").addEventListener("click", closeAnyModal);
+  document.getElementById("wa-save").addEventListener("click", () => {
+    const workEl = document.getElementById("wa-work");
+    const work = workEl.value.trim();
+    if (!work) { workEl.classList.add("input-err"); workEl.focus(); return; }
+    const room = document.getElementById("wa-room").value;
+    const qv = document.getElementById("wa-qty").value;
+    const maxId = (p.works || []).reduce((m, w) => Math.max(m, w.id || 0), 0);
+    p.works = [...(p.works || []), {
+      id: maxId + 1,
+      stage: parseInt(document.getElementById("wa-stage").value, 10) || 1,
+      room,
+      element: room === ROOM_ANY ? null : (document.getElementById("wa-el").value || null),
+      work,
+      unit: document.getElementById("wa-unit").value.trim(),
+      qty: qv === "" ? null : parseFloat(qv),
+      scope: null, origin: null, rel: [],
+      price_buy: null, k1: null, k2: 1,
+    }];
+    logChange(p, "Финансы", `предварительный расчёт: добавлена позиция состава "${room} / ${work}" — появляется и в "Основном"`);
+    closeAnyModal();
+    render();
+  });
+  document.getElementById("wa-work").focus();
+}
+
 /* ТЗ "Финансы", расчёт: добавление строки материалов или прочих работ */
 function openCalcRow(p, kind) {
   const isMat = kind === "mat";
@@ -2478,6 +2538,8 @@ function bindFinance(p) {
   });
   const matAdd = document.getElementById("mat-add");
   if (matAdd) matAdd.addEventListener("click", () => openCalcRow(p, "mat"));
+  const workAdd = document.getElementById("work-add");
+  if (workAdd) workAdd.addEventListener("click", () => openWorkAdd(p));
   const othAdd = document.getElementById("oth-add");
   if (othAdd) othAdd.addEventListener("click", () => openCalcRow(p, "oth"));
   document.querySelectorAll("[data-mdel]").forEach((b) => b.addEventListener("click", () => {
