@@ -1,4 +1,4 @@
-/* Симуляция: список "Все проекты" + карточка проекта — ТЗ модуля "Карточка проекта" (tz/project-card/; правки Объект/Основное/Финансы — 26.09.2026). */
+/* Симуляция: список "Все проекты" + карточка проекта — ТЗ модуля "Карточка проекта" (tz/project-card/; правки Объект/Основное/Финансы/График — 26.09.2026). */
 
 const PROJECTS = DATA.projects;
 const DEFAULT_PROJECT_URL = "2607-Polis-Apartment"; // прежние ссылки #/<таб> открывают эту карточку
@@ -82,7 +82,7 @@ const DOC_STATUSES = {
   sent: { label: "Отправлен", cls: "chip-doc-sent" },
   approved: { label: "Утверждён", cls: "chip-doc-approved" },
 };
-const DOC_TYPES = ["КП", "Бюджет клиента", "Внутренний бюджет", "Счёт", "Акт", "Отчёт", "Проектная документация", "Письмо", "Запрос согласования", "Референсы", "Служебный расчёт"];
+const DOC_TYPES = ["КП", "Бюджет клиента", "Внутренний бюджет", "Календарный план", "Счёт", "Акт", "Отчёт", "Проектная документация", "Письмо", "Запрос согласования", "Референсы", "Служебный расчёт"];
 const docStatusByDir = { in: "received", out: "draft", int: "draft" };
 
 /* ТЗ "Финансы": внутри "Финансов" — Сводный → Предварительный расчёт → Внутренний бюджет → Бюджет клиента → Фактический труд по табелям → Финансовые операции */
@@ -102,6 +102,8 @@ let docDir = "all";
 let taskFilter = { status: "all", assignee: "all", overdue: false };
 let finView = "svodny";
 let budgetVer = "work"; // "work" | "f<индекс>" — выбранная зафиксированная версия
+let planVer = "work"; // График: "work" | "f<индекс>" — выбранная зафиксированная версия плана
+let planProject = null; // при смене проекта выбор версии плана сбрасывается
 let svodSel = null; // версии бюджетов для Сводного (ТЗ "Финансы", Сводный); по умолчанию — клиентский: последняя согласованная
 let svodProject = null; // при смене проекта выбор версий сбрасывается
 let compEditing = null; // черновик состава работ: [{id, stage, room, element, work, unit, qty}]
@@ -402,6 +404,7 @@ function openAddProject() {
       vid_rabot: rd("np-vid"), zametki: rd("np-zam"),
       rooms: [],
       works: [], materials: [], others: [], coef2: { added: false }, fix_calc: [], fix_cli: [],
+      plan_start: null, fix_plan: [],
       docs: [], tasks: [], timesheets: [], ops: [],
       history: [],
     });
@@ -414,26 +417,27 @@ function openAddProject() {
 
 /* ---------------- расчёты: единый источник состава (ТЗ "Основное", состав; ТЗ "Финансы", предварительный расчёт) ---------------- */
 
-const workCost = (qty, price) => (qty == null || price == null ? null : Math.round(qty * price * 100) / 100);
+const workCost = (qty, price) => (qty == null || price == null ? null : Math.round(qty * price * 10) / 10);
 const vatOf = (sum) => Math.round(sum * 0.19 * 100) / 100;
 
-/* ТЗ "Финансы", формулы строки: промежуточное округление до центов; строки трёх таблиц считаются одинаково.
-   Строка расчёта: {qty, price_buy, k1, k2}; Коэф. 2 участвует, только когда добавлен в расчёт проекта */
+/* ТЗ "Финансы", формулы строки файла расчёта; строки трёх таблиц считаются одинаково.
+   Себестоимость = ROUND(Кол-во × Вн. цена за ед.; 2); Цена за ед. = ROUND(Вн. цена за ед. × Коэф. 1; 1);
+   Стоимость = ROUND(Кол-во × Цена за ед. × Коэф. 2; 1) — Коэф. 2 множит стоимость строки, только когда добавлен в расчёт проекта */
 const r2 = (v) => Math.round(v * 100) / 100;
+const r1 = (v) => Math.round(v * 10) / 10;
 const c2added = (p) => !!(p.coef2 && p.coef2.added);
-const salePriceOf = (r, added) => {
-  if (r.price_buy == null || r.k1 == null) return null;
-  const before = r2(r.price_buy * r.k1);
-  if (!added) return before;
-  return r2(before * (r.k2 == null ? 1 : r.k2));
-};
+const salePriceOf = (r, added) => (r.price_buy == null || r.k1 == null ? null : r1(r.price_buy * r.k1));
 const rowSebOf = (r) => (r.qty == null || r.price_buy == null ? null : r2(r.qty * r.price_buy));
-const rowCostOf = (r, added) => (r.qty == null || salePriceOf(r, added) == null ? null : r2(r.qty * salePriceOf(r, added)));
+const rowCostOf = (r, added) => {
+  const price = salePriceOf(r, added);
+  if (r.qty == null || price == null) return null;
+  return r1(r.qty * price * (added && r.k2 != null ? r.k2 : 1));
+};
 const k2GainOf = (r, added) => {
-  if (!added || r.qty == null || r.price_buy == null || r.k1 == null) return 0;
-  const cost = rowCostOf(r, added);
-  const before = r2(r.qty * r2(r.price_buy * r.k1));
-  return cost == null ? 0 : r2(cost - before);
+  const price = salePriceOf(r, added);
+  if (!added || r.qty == null || price == null) return 0;
+  const k2 = r.k2 == null ? 1 : r.k2;
+  return r1(r1(r.qty * price * k2) - r1(r.qty * price));
 };
 
 /* итоги трёх таблиц расчёта: {works, materials, others} → закупочная сторона, продажная сторона, прирост Коэф. 2 */
@@ -458,7 +462,7 @@ function snap(p, kind) { const l = fixList(p, kind); return l.length ? l[l.lengt
 function sumRows(rows, priceKey) {
   const t = { sum: 0, cnt: 0, unev: 0 };
   rows.forEach((r) => {
-    const c = workCost(r.qty, r[priceKey]);
+    const c = r.cost != null ? r.cost : workCost(r.qty, r[priceKey]);
     if (c == null) t.unev += 1;
     else { t.sum = Math.round((t.sum + c) * 100) / 100; t.cnt += 1; }
   });
@@ -475,12 +479,14 @@ function clientDelta(p) {
   works.forEach((w) => {
     const sr = (s.works || []).find((r) => r.wid === w.id);
     if (!sr) flags.set(w.id, "added");
-    else if (sr.qty !== w.qty || r2(sr.price) !== r2(salePriceOf(w, added) ?? -1)) flags.set(w.id, "changed");
+    else if (sr.qty !== w.qty
+      || r1(sr.price) !== r1(salePriceOf(w, added) ?? -1)
+      || (sr.cost != null && sr.cost !== rowCostOf(w, added))) flags.set(w.id, "changed");
   });
   const excluded = (s.works || []).filter((sr) => !works.some((w) => w.id === sr.wid));
-  const fixedSum = (s.works || []).reduce((acc, r) => acc + (r.qty * r.price || 0), 0)
-    + (s.materials || []).reduce((acc, r) => acc + (r.qty * r.price || 0), 0)
-    + (s.others || []).reduce((acc, r) => acc + (r.qty * r.price || 0), 0);
+  const fixedSum = (s.works || []).reduce((acc, r) => acc + (r.cost != null ? r.cost : (r.qty * r.price || 0)), 0)
+    + (s.materials || []).reduce((acc, r) => acc + (r.cost != null ? r.cost : (r.qty * r.price || 0)), 0)
+    + (s.others || []).reduce((acc, r) => acc + (r.cost != null ? r.cost : (r.qty * r.price || 0)), 0);
   const workSum = calcTotals(calcGroups(p), added).sale.sum;
   return { flags, excluded, delta: r2(workSum - fixedSum) };
 }
@@ -697,7 +703,9 @@ function openWorkCard(p, w) {
         ${frow("Подсчёт объёма", `<textarea id="wc-scope" rows="2" placeholder="формула и использованные данные Объекта либо ручное значение с основанием">${esc(w.scope || "")}</textarea>`)}
         ${frow("Основание", `<textarea id="wc-origin" rows="2" placeholder="файл/редакция ПД и лист, запись design-data или источник ручного ввода">${esc(w.origin || "")}</textarea>`)}
         ${frow("Связанные работы", relNames.length ? relNames.map(esc).join("; ") + ` — технологические предшественники` : `<span class="muted">нет; последователи определяются обратной связью</span>`)}
-        ${frow("Норма", `<span class="muted">[ ]</span> — ссылка на применённую строку и версию файла норм; при отсутствии соответствия — График [ ]`)}
+        ${frow("Норма", (() => { const n = normOf(w); return n
+          ? `${n.key} · ${esc(n.title)} — файл норм, версия ${esc(DATA.norms.version)}${w.norm === undefined ? "; подобрана по составу и единице" : "; назначена явным решением"}`
+          : `<span class="muted">[ ]</span> — не назначена; подбор нормы и расчёт длительности — в "Графике"`; })())}
       </tbody></table></div>
       <div class="modal-actions">
         <button class="btn-ghost" id="wc-cancel" type="button">Закрыть</button>
@@ -1199,8 +1207,23 @@ function openDocCard(p, d) {
         <button class="btn-primary" id="${isKp ? "kp-export" : "bud-export"}" type="button">Выгрузить PDF</button>
       </div>`;
   }
+  let planBlock = "";
+  if (d.plan) {
+    const v = (p.fix_plan || []).find((x) => x.version === d.plan);
+    if (v) planBlock = `
+      <div class="sect-title" style="margin-top:14px">Позиции зафиксированного плана</div>
+      <div class="svod-src" style="margin-bottom:8px">${esc(v.label)} · предпосылка ${esc(v.premise)} · календарь: ${esc(v.calendar)}${v.start ? ` · начальная дата ${fmtDate(v.start)}` : ""} · файл норм, версия ${esc(v.norms || DATA.norms.version)} · источник — "График"</div>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Статус</th></tr></thead>
+        <tbody>${v.rows.map((r, i) => `<tr>
+          <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td>
+          <td class="muted">${r.start ? fmtDate(r.start) : "[ ]"}</td><td class="muted">${r.finish ? fmtDate(r.finish) : "[ ]"}</td>
+          <td><span class="chip chip-stage">Запланировано</span></td>
+        </tr>`).join("")}</tbody>
+      </table></div>`;
+  }
   mountModal(`
-    <div class="modal${(d.kp || d.budget) ? " wide" : ""}">
+    <div class="modal${(d.kp || d.budget || d.plan) ? " wide" : ""}">
       <div class="modal-title">Карточка документа</div>
       <div class="tbl-wrap"><table class="tbl tbl-fields">
         <tbody>
@@ -1221,6 +1244,7 @@ function openDocCard(p, d) {
         </tbody>
       </table></div>
       ${kpBlock}
+      ${planBlock}
       <div class="note">Жизненный цикл (${dirNoun[d.dir] || "—"}): ${cycle}${isInvoice ? " Оплаченность вычисляется из распределения подтверждённых поступлений (\"Финансовые операции\") и вручную не устанавливается." : ""}</div>
     </div>`);
   const ex = document.getElementById("kp-export");
@@ -1525,7 +1549,7 @@ function rCalc(p) {
         ? `<div>Прирост от Коэф. 2 (${esc(p.coef2.purpose || "вознаграждение дизайнера")}): <b>${fmtM2(tt.gain)}</b> — плановый расход; в цену клиенту второй раз не добавляется</div>`
         : `<div>Коэф. 2 не добавлен: цена за ед. = цене единицы до Коэф. 2</div>`}
     </div>
-    <div class="note">Формулы строки: Себестоимость = ROUND(Q × C, 2); Цена единицы до Коэф. 2 = ROUND(C × K1, 2); Цена за ед. = ROUND(Цена до Коэф. 2 × K2, 2); Стоимость строки = ROUND(Q × Цена за ед., 2). Промежуточное округление до центов — правило воспроизводимого расчёта; итоги — суммы округлённых строк. Цена продажи вручную не заменяется: коммерческое решение выражается изменением коэффициентов. Состав и количества — из "Основного"; строка добавляется здесь или в "Основном" в один и тот же состав; правка из расчёта открывает ту же позицию, копии не создаётся.</div>`;
+    <div class="note">Формулы строки: Себестоимость = ROUND(Кол-во × Вн. цена за ед.; 2); Цена за ед. = ROUND(Вн. цена за ед. × Коэф. 1; 1); Стоимость = ROUND(Кол-во × Цена за ед. × Коэф. 2; 1) — Коэф. 2 множит стоимость строки, только когда добавлен в расчёт проекта. Округление — правило воспроизводимого расчёта; итоги — суммы округлённых строк. Цена продажи вручную не заменяется: коммерческое решение выражается изменением коэффициентов. Состав и количества — из "Основного"; строка добавляется здесь или в "Основном" в один и тот же состав; правка из расчёта открывает ту же позицию, копии не создаётся.</div>`;
 }
 
 /* Сводный — вычисляемое представление (ТЗ "Финансы", Сводный: 14 показателей) */
@@ -1547,7 +1571,7 @@ function rSvodny(p) {
   const selCli = selVer("cli");
   const cliRows = [];
   if (selCli) {
-    ["works", "materials", "others"].forEach((k) => (selCli[k] || []).forEach((r) => cliRows.push({ qty: r.qty, price: r.price })));
+    ["works", "materials", "others"].forEach((k) => (selCli[k] || []).forEach((r) => cliRows.push(r)));
   } else {
     calcGroups(p).forEach((rows) => rows.forEach((r) => cliRows.push({ qty: r.qty, price: salePriceOf(r, added) })));
   }
@@ -1681,9 +1705,9 @@ function openAgree(p) {
       date: when,
       approved_by: who + (where ? ", " + where : ""),
       vat: 0.19,
-      works: (p.works || []).map((w) => ({ wid: w.id, stage: w.stage, room: w.room, work: w.work, unit: w.unit, qty: w.qty, price: salePriceOf(w, added) })),
-      materials: (p.materials || []).map((m) => ({ id: m.id, name: m.name, unit: m.unit, qty: m.qty, price: salePriceOf(m, added), comment: m.comment || "Предварительная оценка" })),
-      others: (p.others || []).map((o) => ({ id: o.id, name: o.name, unit: o.unit, qty: o.qty, price: salePriceOf(o, added), comment: o.comment || "" })),
+      works: (p.works || []).map((w) => ({ wid: w.id, stage: w.stage, room: w.room, work: w.work, unit: w.unit, qty: w.qty, price: salePriceOf(w, added), cost: rowCostOf(w, added) })),
+      materials: (p.materials || []).map((m) => ({ id: m.id, name: m.name, unit: m.unit, qty: m.qty, price: salePriceOf(m, added), cost: rowCostOf(m, added), comment: m.comment || "Предварительная оценка" })),
+      others: (p.others || []).map((o) => ({ id: o.id, name: o.name, unit: o.unit, qty: o.qty, price: salePriceOf(o, added), cost: rowCostOf(o, added), comment: o.comment || "" })),
     };
     p.fix_cli = [...fl, v];
     budgetVer = "f" + (p.fix_cli.length - 1);
@@ -1955,19 +1979,19 @@ function rBudgetCli(p) {
       <tr>
         <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
         <td class="num">${r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price)}</td>
-        <td class="num">${workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price))}</td>
+        <td class="num">${r.cost != null ? fmtM2(r.cost) : (workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price)))}</td>
       </tr>`).join("");
     mrows = (s.materials || []).map((r, i) => `
       <tr>
         <td>${i + 1}</td><td>${esc(r.name)} <span class="delta-chip delta-muted">предварительная оценка</span></td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
         <td class="num">${r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price)}</td>
-        <td class="num">${workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price))}</td>
+        <td class="num">${r.cost != null ? fmtM2(r.cost) : (workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price)))}</td>
       </tr>`).join("");
     orows = (s.others || []).map((r, i) => `
       <tr>
         <td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
         <td class="num">${r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price)}</td>
-        <td class="num">${workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price))}</td>
+        <td class="num">${r.cost != null ? fmtM2(r.cost) : (workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price)))}</td>
       </tr>`).join("");
     tt = sumRows([...(s.works || []), ...(s.materials || []), ...(s.others || [])].map((r) => ({ qty: r.qty, price: r.price })), "price");
   }
@@ -2302,6 +2326,342 @@ function openCalcRow(p, kind) {
   document.getElementById("cx-name").focus();
 }
 
+/* ---------------- График: исходный календарный план (ТЗ "Карточка проекта — График") ---------------- */
+
+const PLAN_PREMISE = "2 чел. × 8 ч"; // 16 чел.-ч на смену — расчётная предпосылка источника, не назначенные сотрудники
+const PLAN_CALENDAR = "пн–сб; воскресенье — выходной; паузы — в календарных днях";
+
+/* ТЗ "График", данные нормы: строка файла норм — постоянный ключ, состав и применимость, единица, чел.-ч/ед., паузы */
+const normRow = (key) => ((DATA.norms || { rows: [] }).rows.find((n) => n.key === key) || null);
+
+/* подбор по составу и единице: единица совпадает и все ключевые слова применимости входят в название работы */
+function autoNorm(w) {
+  const nm = String(w.work || "").toLowerCase();
+  const fits = (DATA.norms ? DATA.norms.rows : []).filter((n) => n.unit === w.unit && (n.keys || []).every((k) => nm.includes(k)));
+  if (!fits.length) return null;
+  /* самая конкретная норма: больше ключей состава; при равенстве — порядок реестра */
+  return fits.reduce((best, n) => ((n.keys || []).length > (best.keys || []).length ? n : best), fits[0]);
+}
+
+/* норма строки: "" — явное "без нормы"; ключ — явное решение; не задано — подбор по составу и единице */
+function normOf(w) {
+  if (w.norm !== undefined) return w.norm === "" ? null : normRow(w.norm);
+  return autoNorm(w);
+}
+
+/* идеальный расчёт: Трудоёмкость = Кол-во × Норма; CEIL считается в целых сантичасах —
+   округление до смены не зависит от накопления ошибки числа с плавающей точкой */
+function normHoursOf(w) {
+  const n = normOf(w);
+  if (!n || n.unit !== w.unit || w.qty == null) return null;
+  const centi = Math.round(w.qty * n.hours * 100);
+  return { n, centi, hours: centi / 100 };
+}
+function durOf(w) {
+  if (w.dur && w.dur.days != null) return { days: w.dur.days, src: "manual", why: w.dur.why || "", hours: null };
+  const h = normHoursOf(w);
+  if (!h) return null;
+  return { days: Math.max(1, Math.ceil(h.centi / 1600)), src: "norm", hours: h.hours };
+}
+
+/* календарь пн–сб: воскресенье — выходной; паузы — в календарных днях */
+const dISO = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const dParse = (iso) => new Date(iso + "T00:00:00");
+const rollToWork = (d) => { const x = new Date(d); while (x.getDay() === 0) x.setDate(x.getDate() + 1); return x; };
+const addCal = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const firstWorkOnOrAfter = (iso) => rollToWork(dParse(iso));
+
+/* строки графика: топологический обход состава; зависимая работа — после финиша предшественника
+   и паузы его нормы (минимум один день); независимые последовательности идут параллельно */
+function schedRows(p, startIso) {
+  const works = p.works || [];
+  const byId = new Map(works.map((w) => [w.id, w]));
+  const memo = new Map();
+  const visit = (w, depth) => {
+    if (memo.has(w.id)) return memo.get(w.id);
+    const n = normOf(w);
+    const d = durOf(w);
+    const row = { w, hours: d && d.src === "norm" ? d.hours : null, dur: d ? d.days : null, src: d ? d.src : null,
+      start: null, finish: null, pause: (n && n.pause) || 0 };
+    memo.set(w.id, row);
+    if (d && startIso && depth < 100) {
+      let earliest = firstWorkOnOrAfter(startIso);
+      (w.rel || []).forEach((pid) => {
+        const pred = byId.get(pid);
+        const pr = pred ? visit(pred, depth + 1) : null;
+        if (!pr || !pr.finish) return; // предшественник без длительности или даты — связь старт не сдвигает
+        const cand = rollToWork(addCal(pr.finish, Math.max(pr.pause, 1)));
+        if (cand > earliest) earliest = cand;
+      });
+      row.start = earliest;
+      let f = new Date(earliest);
+      for (let i = 1; i < d.days; i++) f = rollToWork(addCal(f, 1));
+      row.finish = f;
+    }
+    return row;
+  };
+  const rows = works.map((w) => visit(w, 0));
+  const t = { cnt: rows.length, byNorm: 0, manual: 0, none: 0, hours: 0, finish: null };
+  rows.forEach((r) => {
+    if (r.src === "norm") { t.byNorm += 1; t.hours = r2(t.hours + r.hours); }
+    else if (r.src === "manual") t.manual += 1;
+    else t.none += 1;
+    if (r.finish && (!t.finish || r.finish > t.finish)) t.finish = r.finish;
+  });
+  return { rows, totals: t };
+}
+
+/* зафиксированные версии плана — переключатели, как у бюджетов (ТЗ "График", два состояния) */
+function fixedPlan(p) {
+  const fl = p.fix_plan || [];
+  const i = planVer.startsWith("f") ? parseInt(planVer.slice(1), 10) : -1;
+  return i >= 0 && i < fl.length ? fl[i] : null;
+}
+function planChips(p) {
+  const fl = p.fix_plan || [];
+  const s = fixedPlan(p);
+  return fl.length ? `
+    <div class="subchips">
+      <button class="fchip${s ? "" : " active"}" data-pver="work" type="button">Рабочая редакция</button>
+      ${fl.map((v, i) => `<button class="fchip${v === s ? " active" : ""}" data-pver="f${i}" type="button">${esc(v.short)} ${esc(v.version)} (${fmtDate(v.date)})</button>`).join("")}
+    </div>` : `
+    <div class="subchips"><span class="fchip active">Рабочая редакция</span></div>`;
+}
+
+/* раскрытие строки рабочей редакции: элемент, количество, норма и расчёт длительности (ТЗ "График", представление) */
+function openPlanRow(p, w) {
+  const auto = autoNorm(w);
+  const explicit = w.norm !== undefined;
+  const cur = explicit ? (w.norm || "") : (auto && auto.unit === w.unit ? auto.key : "");
+  const normOpt = (n) => {
+    const ok = n.unit === w.unit;
+    return `<option value="${n.key}"${cur === n.key ? " selected" : ""}${ok ? "" : " disabled"}>${n.key} · ${esc(n.title)} — ${esc(n.applies)} (${esc(n.unit)}, ${n.hours} чел.-ч/ед.)${n.pause ? `, пауза ${n.pause} к.д.` : ""}${ok ? "" : " — единица не совпадает"}</option>`;
+  };
+  const calcLine = (key) => {
+    if (w.dur && w.dur.days != null) return `Длительность задана вручную: <b>${w.dur.days} смен</b>${w.dur.why ? ` — ${esc(w.dur.why)}` : ""}; расчёт по норме её не подменяет`;
+    const n = key ? normRow(key) : null;
+    if (!n || n.unit !== w.unit || w.qty == null) return `Длительность: <span class="muted">[ ]</span> — подходящей нормы нет или единица не совпала; автоматическая "одна смена" не подставляется`;
+    const centi = Math.round(w.qty * n.hours * 100);
+    const h = centi / 100;
+    const d = Math.max(1, Math.ceil(centi / 1600));
+    return `Трудоёмкость = ${fmtQty(w.qty)} × ${n.hours} = ${fmtQty(h)} чел.-ч · Длительность = MAX(1, CEIL(${fmtQty(h)} ÷ 16)) = <b>${d} смен</b> — округление каждой строки до целой смены`;
+  };
+  const preds = (w.rel || []).map((id) => (p.works || []).find((x) => x.id === id)).filter(Boolean);
+  mountModal(`
+    <div class="modal">
+      <div class="modal-title">Строка графика · ${esc(workName(w))}</div>
+      <div class="tbl-wrap"><table class="tbl tbl-fields"><tbody>
+        <tr><td class="fld">Стадия</td><td>${stageCell(w.stage)}</td></tr>
+        <tr><td class="fld">Помещение</td><td>${esc(w.room)}</td></tr>
+        <tr><td class="fld">Элемент, часть или изделие</td><td>${w.element ? esc(w.element) : `<span class="muted">—</span>`}</td></tr>
+        <tr><td class="fld">Работа</td><td>${esc(w.work)}</td></tr>
+        <tr><td class="fld">Единица и количество</td><td>${esc(w.unit || "—")} · ${fmtQty(w.qty)}</td></tr>
+        <tr><td class="fld">Норма</td><td>
+          <select id="pr-norm">
+            <option value=""${!cur ? " selected" : ""}>— без нормы (длительность [ ])</option>
+            ${DATA.norms.rows.map(normOpt).join("")}
+          </select>
+          <div class="svod-src" style="margin-top:4px">${explicit ? "Назначено явным решением" : (cur ? "Подобрано по составу и единице; выбор фиксирует явное решение у строки" : "Подходящей нормы нет")} · файл норм: ${esc(DATA.norms.name)}, версия ${esc(DATA.norms.version)}</div>
+        </td></tr>
+        <tr><td class="fld">Расчёт длительности</td><td id="pr-calc">${calcLine(cur)}</td></tr>
+        <tr><td class="fld">Ручная длительность, смен</td><td>
+          <input id="pr-dur" type="number" min="1" step="1" value="${w.dur && w.dur.days != null ? w.dur.days : ""}" placeholder="—">
+          <input id="pr-why" type="text" style="margin-top:6px" value="${esc(w.dur ? w.dur.why || "" : "")}" placeholder="основание: источник, опыт объекта, решение">
+          <div class="svod-src" style="margin-top:4px">Обоснованный ручной ввод при отсутствии нормы или отклонении от неё; перекрывает расчёт по норме</div>
+        </td></tr>
+        <tr><td class="fld">Последовательность</td><td>${preds.length
+          ? preds.map((x) => { const n = normOf(x); return `"${esc(workName(x))}"${n && n.pause ? ` (пауза ${n.pause} к.д.)` : ""}`; }).join("; ") + " — технологические предшественники"
+          : `<span class="muted">нет — от начальной даты, параллельно с независимыми последовательностями</span>`}</td></tr>
+        <tr><td class="fld">Статус</td><td><span class="chip chip-stage">Запланировано</span></td></tr>
+      </tbody></table></div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="pr-cancel" type="button">Закрыть</button>
+        <button class="btn-primary" id="pr-save" type="button">Сохранить</button>
+      </div>
+      <div class="note">Норма сопоставляется по составу и единице: норма с включённой подготовкой не применяется к строке отдельной операции без явного решения; одна операция не нормируется дважды. Пауза берётся из нормы предшественника; отсутствующая в файле норм пауза задаётся обоснованием графика.</div>
+    </div>`);
+  document.getElementById("pr-norm").addEventListener("change", (e) => {
+    document.getElementById("pr-calc").innerHTML = calcLine(e.target.value);
+  });
+  document.getElementById("pr-cancel").addEventListener("click", closeAnyModal);
+  document.getElementById("pr-save").addEventListener("click", () => {
+    const selVal = document.getElementById("pr-norm").value;
+    const ch = [];
+    if (selVal !== cur) {
+      w.norm = selVal; // "" — явное "без нормы"
+      ch.push(selVal ? `норма ${selVal} назначена явным решением` : "норма не назначена — длительность [ ] или ручной ввод");
+    }
+    const daysRaw = document.getElementById("pr-dur").value;
+    const why = document.getElementById("pr-why").value.trim();
+    const newDur = daysRaw === "" ? null : { days: parseInt(daysRaw, 10), why };
+    if (JSON.stringify(w.dur || null) !== JSON.stringify(newDur)) {
+      w.dur = newDur;
+      ch.push(newDur ? `длительность вручную: ${newDur.days} смен${newDur.why ? ` — ${newDur.why}` : ""}` : "ручная длительность снята — действует расчёт по норме или [ ]");
+    }
+    if (ch.length) logChange(p, "График", `"${workName(w)}": ${ch.join("; ")}`);
+    closeAnyModal();
+    render();
+  });
+}
+
+/* раскрытие строки зафиксированной версии: значения сохранены в самой версии */
+function openPlanRowFixed(p, v, r) {
+  const n = r.norm ? normRow(r.norm) : null;
+  let calc;
+  if (r.dur == null) calc = `<span class="muted">[ ]</span> — длительность не была рассчитана`;
+  else if (n && n.unit === r.unit && r.qty != null) {
+    const centi = Math.round(r.qty * n.hours * 100);
+    calc = `Трудоёмкость = ${fmtQty(r.qty)} × ${n.hours} = ${fmtQty(centi / 100)} чел.-ч · Длительность = MAX(1, CEIL(${fmtQty(centi / 100)} ÷ 16)) = <b>${r.dur} смен</b>`;
+  } else calc = `Длительность: <b>${r.dur} смен</b> — ручной ввод с основанием`;
+  const w = (p.works || []).find((x) => x.id === r.wid);
+  mountModal(`
+    <div class="modal">
+      <div class="modal-title">Строка зафиксированного плана · ${esc(v.version)}</div>
+      <div class="tbl-wrap"><table class="tbl tbl-fields"><tbody>
+        <tr><td class="fld">Стадия</td><td>${stageCell(r.stage)}</td></tr>
+        <tr><td class="fld">Помещение</td><td>${esc(r.room)}</td></tr>
+        <tr><td class="fld">Работа</td><td>${esc(r.work)}</td></tr>
+        <tr><td class="fld">Единица и количество</td><td>${esc(r.unit || "—")} · ${fmtQty(r.qty)}</td></tr>
+        <tr><td class="fld">Норма</td><td>${n ? `${n.key} · ${esc(n.title)} — ${esc(n.applies)} (${esc(n.unit)}, ${n.hours} чел.-ч/ед.)` : `<span class="muted">[ ]</span>`} · файл норм, версия ${esc(v.norms || DATA.norms.version)}</td></tr>
+        <tr><td class="fld">Расчёт длительности</td><td>${calc}</td></tr>
+        <tr><td class="fld">Даты</td><td>${r.start ? `${fmtDate(r.start)} — ${fmtDate(r.finish)}` : `<span class="muted">—</span>`}</td></tr>
+        <tr><td class="fld">Позиция состава</td><td>${w ? `#${r.wid} — в текущем составе` : `<span class="muted">#${r.wid} — исключена из состава после фиксации</span>`}</td></tr>
+        <tr><td class="fld">Статус</td><td><span class="chip chip-stage">Запланировано</span></td></tr>
+      </tbody></table></div>
+      <div class="modal-actions"><button class="btn-ghost" id="pf-close" type="button">Закрыть</button></div>
+      <div class="note">Зафиксированная версия неизменяема: состав, нормы, длительности, даты и параметры календаря сохранены в самой версии; загрузка нового файла норм план не переписывает.</div>
+    </div>`);
+  document.getElementById("pf-close").addEventListener("click", closeAnyModal);
+}
+
+/* зафиксированная версия плана: таблица версии + сравнение с рабочей редакцией */
+function fixedPlanView(p, v) {
+  const works = p.works || [];
+  const inFix = new Map(v.rows.map((r) => [r.wid, r]));
+  const cur = schedRows(p, p.plan_start);
+  const curDur = new Map(cur.rows.map((r) => [r.w.id, r.dur]));
+  const curById = new Map(works.map((w) => [w.id, w]));
+  const added = works.filter((w) => !inFix.has(w.id));
+  const excluded = v.rows.filter((r) => !curById.has(r.wid));
+  const changed = v.rows.filter((r) => curById.has(r.wid) && curDur.get(r.wid) !== r.dur);
+  const cmp = [];
+  if (added.length) cmp.push(`добавлено: ${added.map((w) => `"${esc(workName(w))}"`).join(", ")}`);
+  if (excluded.length) cmp.push(`исключено: ${excluded.map((r) => `"${esc(r.room)} / ${esc(r.work)}"`).join(", ")}`);
+  if (changed.length) cmp.push(`длительность изменена: ${changed.map((r) => `"${esc(r.work)}" (${r.dur} → ${curDur.get(r.wid) == null ? "[ ]" : curDur.get(r.wid) + " смен"})`).join(", ")}`);
+  const rows = v.rows.map((r, i) => `
+    <tr class="row-click" data-fprow="${r.wid}" title="Раскрыть строку зафиксированной версии">
+      <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td>
+      <td class="muted">${r.start ? fmtDate(r.start) : `[ ]`}</td>
+      <td class="muted">${r.finish ? fmtDate(r.finish) : `[ ]`}</td>
+      <td><span class="chip chip-stage">Запланировано</span></td>
+    </tr>`).join("");
+  return `
+    <div class="fix-cap"><b>${esc(v.label)} · ${esc(v.version)}</b> — зафиксирован ${fmtDate(v.date)} · предпосылка ${esc(v.premise)} · календарь: ${esc(v.calendar)}${v.start ? ` · начальная дата ${fmtDate(v.start)}` : " · без начальной даты"} · файл норм, версия ${esc(v.norms || DATA.norms.version)}</div>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Статус</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div class="budget-summary"><div>${cmp.length ? "К рабочей редакции: " + cmp.join("; ") : "Рабочая редакция совпадает с версией по составу и длительностям"}</div></div>
+    <div class="note">Зафиксированная версия неизменяема; новая фиксация — новая версия. Исходный календарный план — внутренний документ с выгрузкой в "Документах". Пересчёт меняет рабочую редакцию; зафиксированный план служит для сравнения.</div>`;
+}
+
+/* ТЗ "График", фиксация: "Зафиксировать план" — версия с составом, нормами, длительностями, датами и параметрами */
+function fixPlan(p) {
+  const fl = p.fix_plan || [];
+  const src = schedRows(p, p.plan_start);
+  const rows = src.rows.map((r) => ({
+    wid: r.w.id, stage: r.w.stage, room: r.w.room, element: r.w.element || null, work: r.w.work, unit: r.w.unit, qty: r.w.qty,
+    norm: r.src === "norm" ? normOf(r.w).key : (r.w.norm || null),
+    dur: r.dur, start: r.start ? dISO(r.start) : null, finish: r.finish ? dISO(r.finish) : null, status: "planned",
+  }));
+  const v = {
+    version: "v" + (fl.length + 1),
+    label: "Исходный календарный план",
+    short: "Исходный",
+    date: todayIso(),
+    norms: DATA.norms.version,
+    start: p.plan_start || null,
+    premise: PLAN_PREMISE,
+    calendar: PLAN_CALENDAR,
+    rows,
+  };
+  p.fix_plan = [...fl, v];
+  planVer = "f" + (p.fix_plan.length - 1);
+  p.docs = [...(p.docs || []), {
+    name: "Исходный календарный план " + v.version + ".pdf",
+    type: "Календарный план",
+    dir: "int",
+    party: p.pm ? p.pm.name : "",
+    date: v.date,
+    date_doc: v.date,
+    status: "approved",
+    version: v.version,
+    plan: v.version,
+  }];
+  logChange(p, "График", `план зафиксирован: ${v.version} (${fmtDate(v.date)}) — ${rows.length} позиций, предпосылка ${PLAN_PREMISE}${p.plan_start ? `, старт ${fmtDate(p.plan_start)}` : ", без начальной даты"}; версия добавлена в "Документы" (внутренний)`);
+  render();
+}
+
+/* вкладка График: рабочая редакция или зафиксированная версия */
+function rSchedule(p) {
+  if (planProject !== p) { planProject = p; planVer = "work"; }
+  if (!p.fix_plan) p.fix_plan = [];
+  const v = fixedPlan(p);
+  if (v) return planChips(p) + fixedPlanView(p, v);
+  const src = schedRows(p, p.plan_start);
+  const t = src.totals;
+  const rows = src.rows.map((r, i) => `
+    <tr class="row-click" data-prow="${r.w.id}" title="Раскрыть строку: элемент, количество, норма и расчёт длительности">
+      <td>${i + 1}</td><td>${stageCell(r.w.stage)}</td><td>${esc(r.w.room)}</td><td>${esc(r.w.work)}</td>
+      <td class="muted">${r.start ? fmtDate(r.start) : (r.dur == null ? `<span class="muted">[ ]</span>` : "—")}</td>
+      <td class="muted">${r.finish ? fmtDate(r.finish) : (r.dur == null ? `<span class="muted">[ ]</span>` : "—")}</td>
+      <td><span class="chip chip-stage">Запланировано</span></td>
+    </tr>`).join("");
+  return `
+    ${planChips(p)}
+    <div class="budget-actions"><button class="btn-ghost" id="btn-fix-plan" type="button">Зафиксировать план</button></div>
+    <div class="note fin-note">
+      Расчёт длительности: предпосылка ${PLAN_PREMISE} (16 чел.-ч на смену) — расчётная предпосылка источника, не назначенные сотрудники; сохраняется в версии. Календарь: ${PLAN_CALENDAR}. Каждая строка округляется до целой смены: MAX(1, CEIL(Трудоёмкость ÷ 16)).
+      <div style="margin-top:8px">Начальная дата: <input type="date" id="sch-start" value="${esc(p.plan_start || "")}">${p.plan_start ? "" : ` <span class="muted">— не задана: показываются трудоёмкость, длительности и последовательность, календарные даты не подставляются</span>`}</div>
+    </div>
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Статус</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7" class="muted">Состав не задан</td></tr>`}</tbody>
+    </table></div>
+    <div class="budget-summary">
+      <div>Позиций: <b>${t.cnt}</b> · по норме: ${t.byNorm} · ручная длительность: ${t.manual} · длительность [ ]: ${t.none}</div>
+      <div>Трудоёмкость по нормам: <b>${fmtQty(t.hours)} чел.-ч</b>${t.finish ? ` · финиш проекта: <b>${fmtDate(t.finish)}</b>` : ""}</div>
+    </div>
+    <div class="note">Строки — подробные позиции состава ("Основное"); объединённый КП строк графика не порождает. Общая оценка материалов и месяцы проектных, сопутствующих и повременных работ строительными операциями не становятся. Зависимая работа начинается после завершения предшественника и паузы его нормы (минимум один день); независимые последовательности идут параллельно. Деление площади на несколько строк сохраняет суммарные чел.-ч, календарная длительность может измениться из-за округления каждой строки до смены — это видно в расчёте строки.</div>`;
+}
+
+function bindSchedule(p) {
+  document.querySelectorAll("[data-pver]").forEach((b) =>
+    b.addEventListener("click", () => { planVer = b.dataset.pver; render(); }));
+  const st = document.getElementById("sch-start");
+  if (st) st.addEventListener("change", () => {
+    const now = st.value || null;
+    if ((p.plan_start || null) !== now) {
+      p.plan_start = now;
+      logChange(p, "График", now ? `начальная дата плана: ${fmtDate(now)}` : "начальная дата плана снята — календарные даты не показываются");
+    }
+    render();
+  });
+  document.querySelectorAll("tr[data-prow]").forEach((tr) =>
+    tr.addEventListener("click", () => {
+      const w = (p.works || []).find((x) => String(x.id) === tr.dataset.prow);
+      if (w) openPlanRow(p, w);
+    }));
+  const v = fixedPlan(p);
+  document.querySelectorAll("tr[data-fprow]").forEach((tr) =>
+    tr.addEventListener("click", () => {
+      const row = v && v.rows.find((r) => String(r.wid) === tr.dataset.fprow);
+      if (v && row) openPlanRowFixed(p, v, row);
+    }));
+  const fx = document.getElementById("btn-fix-plan");
+  if (fx) fx.addEventListener("click", () => fixPlan(p));
+}
+
 /* ---------------- заглушка раздела (ТЗ "Карточка проекта", табы: неописанный таб показывается с состоянием [ ]) ---------------- */
 
 function rPending(specName, extra) {
@@ -2320,7 +2680,7 @@ const TABS = [
   { id: "facility", label: "Объект", render: rObject },
   { id: "tasks", label: "Задачи", render: rTasks },
   { id: "documents", label: "Документы", render: rDocs },
-  { id: "schedule", label: "График", render: () => rPending("Карточка проекта — График", "Место вкладки сохранено; содержание — отдельное ТЗ") },
+  { id: "schedule", label: "График", render: rSchedule },
   { id: "finance", label: "Финансы", render: rFinance },
   { id: "tender", label: "Тендер", render: () => rPending("Карточка проекта — Тендер") },
   { id: "client-portal", label: "Кабинет клиента", render: () => rPending("Карточка проекта — Кабинет клиента") },
@@ -2638,6 +2998,7 @@ function render() {
     if (r.tab === "facility") bindObject(p);
     if (r.tab === "tasks") bindTasks(p);
     if (r.tab === "documents") bindDocs(p);
+    if (r.tab === "schedule") bindSchedule(p);
     if (r.tab === "finance") bindFinance(p);
   } else {
     document.body.classList.remove("on-card");
