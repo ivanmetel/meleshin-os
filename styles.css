@@ -499,6 +499,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .chip-doc-ready     { background: #fef3c7; color: #b45309; }
 .chip-doc-sent      { background: #dcfce7; color: #16a34a; }
 .chip-doc-approved  { background: #dcfce7; color: #16a34a; }
+.chip-doc-fixed     { background: #e0e7ff; color: #4338ca; }
+.chip-doc-agreed    { background: #bbf7d0; color: #15803d; }
 
 /* ---------- бюджеты: версии, цены, итоги (рекомендации 23.09, разделы 3-4) ---------- */
 
@@ -574,3 +576,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .tab-body { padding: 16px 12px; }
   .head-tbl td { white-space: normal; padding-right: 12px; }
 }
+
+/* ---------- числовые поля: без стрелок-степперов ---------- */
+
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }

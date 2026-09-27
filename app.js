@@ -66,31 +66,41 @@ const isOverdue = (t) => {
   return d < now;
 };
 
-/* ТЗ "Документы": направление документа — отдельный признак */
-const DOC_DIRS = [
-  { id: "in", label: "Входящие" },
-  { id: "out", label: "Исходящие" },
-  { id: "int", label: "Внутренние" },
-];
-const dirNoun = { in: "Входящий", out: "Исходящий", int: "Внутренний" };
-const DOC_STATUSES = {
-  received: { label: "Получен", cls: "chip-doc-received" },
-  processing: { label: "В обработке", cls: "chip-doc-processing" },
-  processed: { label: "Обработан", cls: "chip-doc-processed" },
-  draft: { label: "Черновик", cls: "chip-doc-draft" },
-  ready: { label: "Готов к отправке", cls: "chip-doc-ready" },
+/* ТЗ "Карточка проекта" 2.5: словарь состояний документов; состояние = последнее зарегистрированное событие */
+const DOC_EVENTS = {
+  created: { label: "Черновик", cls: "chip-doc-draft" },
+  fixed: { label: "Зафиксирован", cls: "chip-doc-fixed" },
   sent: { label: "Отправлен", cls: "chip-doc-sent" },
-  approved: { label: "Утверждён", cls: "chip-doc-approved" },
+  received: { label: "Получен", cls: "chip-doc-received" },
+  agreed: { label: "Согласован с клиентом", cls: "chip-doc-agreed" },
+  approved: { label: "Утверждён внутри компании", cls: "chip-doc-approved" },
 };
-const DOC_TYPES = ["КП", "Бюджет клиента", "Внутренний бюджет", "Календарный план", "Счёт", "Акт", "Отчёт", "Проектная документация", "Письмо", "Запрос согласования", "Референсы", "Служебный расчёт"];
-const docStatusByDir = { in: "received", out: "draft", int: "draft" };
+const docEvents = (d) => d.events || [];
+const docState = (d) => {
+  const evs = docEvents(d);
+  const last = evs[evs.length - 1];
+  return (last && DOC_EVENTS[last.kind]) || DOC_EVENTS.created;
+};
+const docHasEvent = (d, kind) => docEvents(d).some((e) => e.kind === kind);
 
-/* ТЗ "Финансы": внутри "Финансов" — Сводный → Предварительный расчёт → Внутренний бюджет → Бюджет клиента → Фактический труд по табелям → Финансовые операции */
+/* ТЗ "Документы" §1: типы единого реестра */
+const DOC_TYPES = ["Смета", "КП", "Договор", "Счёт", "Акт выполненных работ", "Отчёт", "Письмо", "Проектная документация", "sheets-register", "design-data", "card", "Референсы", "Календарный план", "Запрос цены", "Предложение поставщика"];
+
+/* ТЗ "Карточка проекта" 2.6: состояние работы состава; открытие работы строку не закрывает */
+const WSTATES = [
+  { id: "planned", label: "Запланирована", cls: "chip-stage" },
+  { id: "inwork", label: "В работе", cls: "chip-doc-processing" },
+  { id: "done", label: "Выполнена", cls: "chip-doc-approved" },
+  { id: "excluded", label: "Исключена", cls: "chip-doc-draft" },
+];
+const wstateOf = (w) => WSTATES.find((s) => s.id === (w.wstate || "planned")) || WSTATES[0];
+const wstateChip = (w) => `<span class="chip ${wstateOf(w).cls}">${wstateOf(w).label}</span>`;
+const openWorks = (p) => (p.works || []).filter((w) => ["planned", "inwork"].includes(w.wstate || "planned"));
+
+/* ТЗ "Финансы" §: внутри "Финансов" — Сводный → Сметы → Фактический труд по табелям → Финансовые операции */
 const FIN_VIEWS = [
   { id: "svodny", label: "Сводный" },
-  { id: "calc", label: "Предварительный расчёт" },
-  { id: "b-int", label: "Внутренний бюджет" },
-  { id: "b-cli", label: "Бюджет клиента" },
+  { id: "est", label: "Сметы" },
   { id: "labor", label: "Фактический труд по табелям" },
   { id: "ops", label: "Финансовые операции" },
 ];
@@ -98,17 +108,18 @@ const FIN_VIEWS = [
 /* состояние видов и фильтров — в памяти страницы */
 let filterStage = "all";
 let historyOpen = false;
-let docDir = "all";
 let taskFilter = { status: "all", assignee: "all", overdue: false };
 let finView = "svodny";
-let budgetVer = "work"; // "work" | "f<индекс>" — выбранная зафиксированная версия
+let estSel = "work"; // Сметы: "work" | индекс редакции в p.est
+let estProject = null; // при смене проекта выбор редакции сбрасывается
 let planVer = "work"; // График: "work" | "f<индекс>" — выбранная зафиксированная версия плана
 let planProject = null; // при смене проекта выбор версии плана сбрасывается
-let svodSel = null; // версии бюджетов для Сводного (ТЗ "Финансы", Сводный); по умолчанию — клиентский: последняя согласованная
-let svodProject = null; // при смене проекта выбор версий сбрасывается
+let svodSel = "auto"; // Сводный: "auto" (цепочка по умолчанию) | "work" | "e<индекс>"
+let svodProject = null; // при смене проекта выбор сбрасывается
 let compEditing = null; // черновик состава работ: [{id, stage, room, element, work, unit, qty}]
 
-const fmtM2 = (v) => (v == null ? "—" : new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v) + " €");
+/* ТЗ "Финансы" 2.4/2.8: денежные значения — два знака после запятой; € — только в заголовках столбцов */
+const fmtM2 = (v) => (v == null ? "—" : new Intl.NumberFormat("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v));
 const fmtQty = (v) => (v == null ? "—" : new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(v));
 const fmtDate = (iso) => {
   if (!iso) return "—";
@@ -403,7 +414,7 @@ function openAddProject() {
       tg_team: null, tg_client: null,
       vid_rabot: rd("np-vid"), zametki: rd("np-zam"),
       rooms: [],
-      works: [], materials: [], others: [], coef2: { added: false }, fix_calc: [], fix_cli: [],
+      works: [], materials: [], others: [], coef2: { added: false }, est: [],
       plan_start: null, fix_plan: [],
       docs: [], tasks: [], timesheets: [], ops: [],
       history: [],
@@ -415,63 +426,96 @@ function openAddProject() {
   document.getElementById("np-name").focus();
 }
 
-/* ---------------- расчёты: единый источник состава (ТЗ "Основное", состав; ТЗ "Финансы", предварительный расчёт) ---------------- */
+/* ---------------- расчёты: единый источник состава (ТЗ "Основное", состав; ТЗ "Финансы", Сметы) ---------------- */
 
-const workCost = (qty, price) => (qty == null || price == null ? null : Math.round(qty * price * 10) / 10);
 const vatOf = (sum) => Math.round(sum * 0.19 * 100) / 100;
 
-/* ТЗ "Финансы", формулы строки файла расчёта; строки трёх таблиц считаются одинаково.
-   Себестоимость = ROUND(Кол-во × Вн. цена за ед.; 2); Цена за ед. = ROUND(Вн. цена за ед. × Коэф. 1; 1);
-   Стоимость = ROUND(Кол-во × Цена за ед. × Коэф. 2; 1) — Коэф. 2 множит стоимость строки, только когда добавлен в расчёт проекта */
+/* ТЗ "Финансы" 2.4, формулы строки: Себестоимость = ROUND(Q × C; 2); Цена за ед. = ROUND(C × K1 × K2; 1) —
+   Коэф. 2 входит в произведение до округления; Стоимость = ROUND(Q × Цена за ед.; 2).
+   Коэф. 2 применяется только к строкам СМР и отделочных работ; для материалов и прочих K2 = 1 */
 const r2 = (v) => Math.round(v * 100) / 100;
 const r1 = (v) => Math.round(v * 10) / 10;
 const c2added = (p) => !!(p.coef2 && p.coef2.added);
-const salePriceOf = (r, added) => (r.price_buy == null || r.k1 == null ? null : r1(r.price_buy * r.k1));
+const rowK2 = (r, added, isWork) => (added && isWork && r.k2 != null ? r.k2 : 1);
+const salePriceOf = (r, added, isWork) => (r.price_buy == null || r.k1 == null ? null : r1(r.price_buy * r.k1 * rowK2(r, added, isWork)));
 const rowSebOf = (r) => (r.qty == null || r.price_buy == null ? null : r2(r.qty * r.price_buy));
-const rowCostOf = (r, added) => {
-  const price = salePriceOf(r, added);
+const rowCostOf = (r, added, isWork) => {
+  const price = salePriceOf(r, added, isWork);
   if (r.qty == null || price == null) return null;
-  return r1(r.qty * price * (added && r.k2 != null ? r.k2 : 1));
+  return r2(r.qty * price);
 };
-const k2GainOf = (r, added) => {
-  const price = salePriceOf(r, added);
-  if (!added || r.qty == null || price == null) return 0;
-  const k2 = r.k2 == null ? 1 : r.k2;
-  return r1(r1(r.qty * price * k2) - r1(r.qty * price));
+/* ТЗ "Финансы" 2.5: вознаграждение дизайнера — прирост стоимости строки от Коэф. 2:
+   стоимость по 2.4 − ROUND(Q × ROUND(C × K1; 1); 2); не добавляется к цене клиента второй раз */
+const k2GainOf = (r, added, isWork) => {
+  if (!added || !isWork) return 0;
+  const withK2 = rowCostOf(r, added, isWork);
+  const basePrice = r.price_buy == null || r.k1 == null ? null : r1(r.price_buy * r.k1);
+  if (withK2 == null || basePrice == null || r.qty == null) return 0;
+  return r2(withK2 - r2(r.qty * basePrice));
 };
 
-/* итоги трёх таблиц расчёта: {works, materials, others} → закупочная сторона, продажная сторона, прирост Коэф. 2 */
+/* итоги трёх таблиц: {works, materials, others} → закупочная сторона, продажная сторона (диапазоном при
+   диапазонных строках материалов, ТЗ "Финансы" 2.2–2.3), прирост Коэф. 2; пропуски сторон считаются отдельно */
 function calcTotals(groups, added) {
-  const t = { buy: { sum: 0, cnt: 0, unev: 0 }, sale: { sum: 0, cnt: 0, unev: 0 }, gain: 0 };
-  groups.forEach((rows) => rows.forEach((r) => {
+  const t = { buy: { sum: 0, cnt: 0, unev: 0 }, sale: { lo: 0, hi: 0, cnt: 0, unev: 0, range: false }, gain: 0 };
+  const kinds = [true, false, false]; // СМР / материалы / прочие — Коэф. 2 только у СМР
+  groups.forEach((rows, gi) => rows.forEach((r) => {
+    const isWork = kinds[gi];
     const s = rowSebOf(r);
     if (s == null) t.buy.unev += 1; else { t.buy.sum = r2(t.buy.sum + s); t.buy.cnt += 1; }
-    const c = rowCostOf(r, added);
-    if (c == null) t.sale.unev += 1; else { t.sale.sum = r2(t.sale.sum + c); t.sale.cnt += 1; }
-    t.gain = r2(t.gain + k2GainOf(r, added));
+    if (r.range) {
+      // оценка материалов границами: обе границы — значения строки (ТЗ "Финансы" 2.2)
+      t.sale.lo = r2(t.sale.lo + (r.range.lo || 0));
+      t.sale.hi = r2(t.sale.hi + (r.range.hi || 0));
+      t.sale.cnt += 1;
+      t.sale.range = true;
+    } else {
+      const c = rowCostOf(r, added, isWork);
+      if (c == null) t.sale.unev += 1;
+      else { t.sale.lo = r2(t.sale.lo + c); t.sale.hi = r2(t.sale.hi + c); t.sale.cnt += 1; }
+    }
+    t.gain = r2(t.gain + k2GainOf(r, added, isWork));
   }));
   return t;
 }
 const calcGroups = (src) => [src.works || [], src.materials || [], src.others || []];
-const fixGain = (src) => calcTotals(calcGroups(src), !!(src.coef2 && src.coef2.added)).gain;
+const fmtSale = (sale) => (sale.range ? `${fmtM2(sale.lo)}–${fmtM2(sale.hi)}` : fmtM2(sale.lo));
 
-/* зафиксированные версии (ТЗ "Финансы", версии): fix_calc — версии расчёта, fix_cli — согласованные Бюджеты клиента */
-function fixList(p, kind) { return kind === "int" ? (p.fix_calc || []) : (p.fix_cli || []); }
-function snap(p, kind) { const l = fixList(p, kind); return l.length ? l[l.length - 1] : null; }
-
-function sumRows(rows, priceKey) {
-  const t = { sum: 0, cnt: 0, unev: 0 };
+/* редакции сметы (ТЗ "Финансы" 2.6): рабочая — единственное место изменения цен и коэффициентов;
+   сохранённая — зафиксированный набор, значения не пересчитываются */
+const estList = (p) => p.est || [];
+const estById = (p, id) => estList(p).find((v) => v.id === id) || null;
+const estLastAgreed = (p) => [...estList(p)].reverse().find((v) => v.state === "agreed" && !v.viaKp) || null;
+/* последняя согласованная редакция любого носителя — смета или КП (ТЗ "Финансы" 2.6: признак "изменено относительно согласованного") */
+const estLastAgreedAny = (p) => [...estList(p)].reverse().find((v) => v.state === "agreed") || null;
+const estStateLabel = (v) => ((DOC_EVENTS[{ fixed: "fixed", agreed: "agreed" }[v.state]] || DOC_EVENTS.created).label);
+/* продажи сохранённой редакции: значения сохранены в самой редакции; диапазон — границами */
+function estSaleOf(v) {
+  const rows = [...(v.works || []), ...(v.materials || []), ...(v.others || [])];
+  let lo = 0, hi = 0, range = false;
   rows.forEach((r) => {
-    const c = r.cost != null ? r.cost : workCost(r.qty, r[priceKey]);
-    if (c == null) t.unev += 1;
-    else { t.sum = Math.round((t.sum + c) * 100) / 100; t.cnt += 1; }
+    if (r.range) { lo = r2(lo + (r.range.lo || 0)); hi = r2(hi + (r.range.hi || 0)); range = true; }
+    else if (r.cost != null) { lo = r2(lo + r.cost); hi = r2(hi + r.cost); }
   });
-  return t;
+  return { lo, hi, range };
 }
+const estSebOf = (v) => (v.totals && v.totals.seb != null ? v.totals.seb
+  : r2([...(v.works || []), ...(v.materials || []), ...(v.others || [])].reduce((a, r) => a + (r.seb != null ? r.seb : 0), 0)));
+const estGainOf = (v) => {
+  if (!(v.coef2 && v.coef2.added)) return 0;
+  return r2((v.works || []).reduce((a, r) => {
+    const basePrice = r.price_buy == null || r.k1 == null ? null : r1(r.price_buy * r.k1);
+    if (r.cost == null || basePrice == null || r.qty == null) return a;
+    return a + r2(r.cost - r2(r.qty * basePrice));
+  }, 0));
+};
 
-/* признак "изменено относительно согласованного" (ТЗ "Финансы", версии) */
+/* строка КП без сохранённой стоимости: стоимость = ROUND(Q × Цена за ед.; 2) */
+const kpRowCost = (r) => (r.cost != null ? r.cost : (r.qty == null || r.price == null ? null : r2(r.qty * r.price)));
+
+/* признак "изменено относительно согласованного" (ТЗ "Финансы" 2.6): сравнение с последней согласованной редакцией */
 function clientDelta(p) {
-  const s = snap(p, "cli");
+  const s = estLastAgreedAny(p);
   if (!s) return null;
   const added = c2added(p);
   const works = p.works || [];
@@ -480,15 +524,13 @@ function clientDelta(p) {
     const sr = (s.works || []).find((r) => r.wid === w.id);
     if (!sr) flags.set(w.id, "added");
     else if (sr.qty !== w.qty
-      || r1(sr.price) !== r1(salePriceOf(w, added) ?? -1)
-      || (sr.cost != null && sr.cost !== rowCostOf(w, added))) flags.set(w.id, "changed");
+      || r1(sr.price) !== r1(salePriceOf(w, added, true) ?? -1)
+      || (sr.cost != null && sr.cost !== rowCostOf(w, added, true))) flags.set(w.id, "changed");
   });
   const excluded = (s.works || []).filter((sr) => !works.some((w) => w.id === sr.wid));
-  const fixedSum = (s.works || []).reduce((acc, r) => acc + (r.cost != null ? r.cost : (r.qty * r.price || 0)), 0)
-    + (s.materials || []).reduce((acc, r) => acc + (r.cost != null ? r.cost : (r.qty * r.price || 0)), 0)
-    + (s.others || []).reduce((acc, r) => acc + (r.cost != null ? r.cost : (r.qty * r.price || 0)), 0);
-  const workSum = calcTotals(calcGroups(p), added).sale.sum;
-  return { flags, excluded, delta: r2(workSum - fixedSum) };
+  const fixedSale = estSaleOf(s);
+  const workSale = calcTotals(calcGroups(p), added).sale;
+  return { flags, excluded, base: s, delta: r2(workSale.lo - fixedSale.lo) };
 }
 
 /* ТЗ "Финансы", операции: типы операций; записи демо-данных старого формата получают тип из направления */
@@ -500,9 +542,11 @@ const OP_TYPES = [
 ];
 const opType = (o) => o.type || (o.dir === "in" ? "income" : "expense");
 
-/* счёт — исходящий документ типа "Счёт"; в расчёты с клиентом попадают отправленные */
+/* ТЗ "Документы" §3: в расчёт требований входят фактически выставленные и отправленные клиентские счета —
+   без столбца направления клиентские счета отличает получатель; факт отправки сохраняется после последующих событий */
 const normDoc = (s) => String(s || "").replace(/\.pdf$/i, "");
-const invoiceDocs = (p) => (p.docs || []).filter((d) => d.type === "Счёт" && d.dir === "out" && d.status === "sent");
+const invoiceDocs = (p) => (p.docs || []).filter((d) => d.type === "Счёт"
+  && p.client && d.party === p.client.name && docHasEvent(d, "sent"));
 
 /* ТЗ "Финансы", операции: подтверждённое поступление распределяется по счетам (поле "Документ" операции) */
 function paidByInvoice(p) {
@@ -535,11 +579,11 @@ function finTotals(p) {
     if (tp === "refund") {
       const src = ops.find((x) => x !== o && x.status === "confirmed" && opType(x) !== "refund" && o.refund_of && x.purpose === o.refund_of);
       if (!src) return; // возврат без связи с исходной операцией в итогах не учитывается
-      if (src.dir === "in") t.income = Math.round((t.income - o.amount) * 100) / 100;
+      if (opType(src) === "income") t.income = Math.round((t.income - o.amount) * 100) / 100;
       else t.expense = Math.round((t.expense - o.amount) * 100) / 100;
       return;
     }
-    if (o.dir === "in") t.income = Math.round((t.income + o.amount) * 100) / 100;
+    if (tp === "income") t.income = Math.round((t.income + o.amount) * 100) / 100;
     else t.expense = Math.round((t.expense + o.amount) * 100) / 100;
   });
   // ТЗ "Финансы", Сводный: распределение поступлений по счетам и аванс клиента
@@ -586,7 +630,7 @@ function compView(p) {
           <tbody>${body}</tbody>
         </table></div>`
       : `<div class="empty">Состав работ не задан</div>`}
-    <div class="note">Состав, стадии, помещения, работы, единицы и количества — источник для "Финансов" ("Предварительный расчёт"); копии позиций там нет. Клик по строке открывает позицию с её сведениями. Помещение выбирается из перечня помещений ("Объект"); для общих работ — значение "${ROOM_ANY}". У позиции есть постоянный внутренний идентификатор: видимый "#" — только порядок строк.</div>`;
+    <div class="note">Состав, стадии, помещения, работы, единицы и количества — источник для "Финансов" ("Сметы") и "Графика"; копии позиций там нет. Клик по строке открывает позицию с её сведениями. Помещение выбирается из перечня помещений ("Объект"); для общих работ — значение "${ROOM_ANY}". У позиции есть постоянный внутренний идентификатор: видимый "#" — только порядок строк.</div>`;
 }
 
 function compEdit(p) {
@@ -643,7 +687,7 @@ function compSave(p) {
     if (!r.id) {
       maxId += 1;
       // ТЗ "Основное", состав событие 1: добавленная работа появляется в расчёте с пустой закупочной ценой
-      return { id: maxId, stage: r.stage || 1, room: r.room || ROOM_ANY, element: r.element || null, work: r.work, unit: r.unit, qty: r.qty, scope: null, origin: null, rel: [], price_buy: null, k1: null, k2: 1 };
+      return { id: maxId, stage: r.stage || 1, room: r.room || ROOM_ANY, element: r.element || null, work: r.work, unit: r.unit, qty: r.qty, scope: null, origin: null, rel: [], price_buy: null, k1: null, k2: 1, wstate: "planned" };
     }
     const prev = old.find((w) => w.id === r.id) || {};
     // ТЗ "Основное", состав событие 4: изменена единица или существенно изменена работа — позиция требует проверки цены
@@ -706,20 +750,31 @@ function openWorkCard(p, w) {
         ${frow("Норма", (() => { const n = normOf(w); return n
           ? `${n.key} · ${esc(n.title)} — файл норм, версия ${esc(DATA.norms.version)}${w.norm === undefined ? "; подобрана по составу и единице" : "; назначена явным решением"}`
           : `<span class="muted">[ ]</span> — не назначена; подбор нормы и расчёт длительности — в "Графике"`; })())}
+        ${frow("Состояние работы", `
+          <select id="wc-wstate">${WSTATES.map((s) => `<option value="${s.id}"${(w.wstate || "planned") === s.id ? " selected" : ""}>${s.label}</option>`).join("")}</select>
+          <input id="wc-why" type="text" style="margin-top:6px" value="${esc(w.why || "")}" placeholder="основание выполнения или исключения — документ и дата">
+          <div class="svod-src" style="margin-top:4px">Для "Выполнена" и "Исключена" сохраняется основание (ТЗ "Карточка проекта", 2.6); удаление строки из отображения работу не закрывает</div>`)}
       </tbody></table></div>
       <div class="modal-actions">
         <button class="btn-ghost" id="wc-cancel" type="button">Закрыть</button>
         <button class="btn-primary" id="wc-save" type="button">Сохранить</button>
       </div>
-      <div class="note">Стадия, помещение, элемент, работа, единица и количество меняются конструктором "Редактировать состав"; здесь — происхождение объёма. Позиция без ПД — задание на словах: сохраняются содержание, источник и дата; фиктивная ссылка на чертёж не создаётся.</div>
+      <div class="note">Стадия, помещение, элемент, работа, единица и количество меняются конструктором "Редактировать состав"; здесь — происхождение объёма и состояние работы. Позиция без ПД — задание на словах: сохраняются содержание, источник и дата; фиктивная ссылка на чертёж не создаётся.</div>
     </div>`);
   document.getElementById("wc-cancel").addEventListener("click", closeAnyModal);
   document.getElementById("wc-save").addEventListener("click", () => {
     const scope = document.getElementById("wc-scope").value.trim();
     const origin = document.getElementById("wc-origin").value.trim();
+    const wstate = document.getElementById("wc-wstate").value;
+    const why = document.getElementById("wc-why").value.trim();
     const ch = [];
     if ((w.scope || "") !== scope) ch.push("подсчёт объёма");
     if ((w.origin || "") !== origin) ch.push("основание");
+    if ((w.wstate || "planned") !== wstate || (w.why || "") !== why) {
+      ch.push(`состояние работы: ${wstateOf(w).label} → ${WSTATES.find((s) => s.id === wstate).label}${why ? ` (${why})` : ""}`);
+      w.wstate = wstate;
+      w.why = why || null;
+    }
     w.scope = scope || null;
     w.origin = origin || null;
     if (ch.length) logChange(p, "Основное", `"${workName(w)}": ${ch.join(", ")} — изменены`);
@@ -1077,85 +1132,123 @@ function openTaskCard(p, t) {
   document.getElementById("tk-title").focus();
 }
 
-/* ---------------- Документы: один реестр, вкладки управления (ТЗ "Документы") ---------------- */
+/* ---------------- Документы: единый реестр (ТЗ "Документы" §1) ---------------- */
 
 function rDocs(p) {
   const all = p.docs || [];
-  const list = all.filter((d) => docDir === "all" || d.dir === docDir);
-  // ТЗ "Документы": вкладка направления задаёт контекст управления, а не фильтр строк —
-  // свой набор столбцов и своё событие даты
-  const CTX = {
-    all: { party: "Корреспондент", date: "Дата", ver: true, dir: true },
-    in: { party: "От кого", date: "Дата получения", ver: false, dir: false },
-    out: { party: "Кому", date: "Дата отправки", ver: true, dir: false },
-    int: { party: "Автор", date: "Дата документа", ver: true, dir: false },
-  }[docDir];
-  const body = list.map((d, i) => {
-    const st = DOC_STATUSES[d.status] || { label: d.status, cls: "" };
-    return `<tr class="row-click" data-doc="${all.indexOf(d)}" title="Открыть карточку документа">
+  const body = all.map((d, i) => {
+    const st = docState(d);
+    return `<tr class="row-click" data-doc="${i}" title="Открыть карточку документа">
       <td>${i + 1}</td>
-      ${CTX.dir ? `<td class="muted">${dirNoun[d.dir]}</td>` : ""}
-      <td>${esc(d.name)}${d.kp ? ` <span class="delta-chip delta-added">КП</span>` : ""}</td>
+      <td>${esc(d.name)}</td>
       <td>${esc(d.type)}</td>
-      <td>${esc(d.party)}</td>
       <td class="muted">${fmtDate(d.date)}</td>
-      ${CTX.ver ? `<td class="muted">${esc(d.version || "—")}</td>` : ""}
       <td><span class="chip ${st.cls}">${esc(st.label)}</span></td>
     </tr>`;
   }).join("");
   return `
-    <div class="dtabs">
-      <button class="dtab${docDir === "all" ? " active" : ""}" data-ddir="all" type="button">Все</button>
-      ${DOC_DIRS.map((d) => `<button class="dtab${docDir === d.id ? " active" : ""}" data-ddir="${d.id}" type="button">${esc(d.label)}</button>`).join("")}
-    </div>
-    ${list.length
+    ${all.length
       ? `<div class="tbl-wrap"><table class="tbl">
-          <thead><tr><th>#</th>${CTX.dir ? "<th>Направление</th>" : ""}<th>Документ</th><th>Тип</th><th>${CTX.party}</th><th>${CTX.date}</th>${CTX.ver ? "<th>Версия</th>" : ""}<th>Статус</th></tr></thead>
+          <thead><tr><th>#</th><th>Документ</th><th>Тип</th><th>Дата</th><th>Статус</th></tr></thead>
           <tbody>${body}</tbody>
         </table></div>`
       : `<div class="empty">Документов нет</div>`}
-    <div class="note">Вкладка направления — контекст управления: свои столбцы, своё событие даты и свой жизненный цикл. Входящие — полученное: дата получения, статусы "Получен → В обработке → Обработан"; регистрация не означает принятия. Исходящие — составленное компанией: дата отправки заполняется событием отправки, пустая дата — не отправлен. Внутренние — служебные: утверждение, отправки нет. Версия — номер редакции, составленной компанией (КП v1 → v2); входящие версий не имеют — новая редакция от контрагента регистрируется новым документом. КП и зафиксированные версии бюджетов — здесь с выгрузкой, со ссылкой на источник.</div>`;
+    <div class="note">Единый реестр: направление и редакция отдельными столбцами не показываются. Статус — последнее зарегистрированное событие из словаря состояний документов ("Карточка проекта", 2.5); события не стирают друг друга — у согласованного документа остаются даты фиксации и отправки. Дата в реестре — дата документа. Согласие клиента не выводится из этапа проекта: состояние меняет только зарегистрированное событие в карточке документа.</div>`;
 }
 
-/* группы строк документа: работы / материалы (предварительная оценка) / прочие работы */
-function docGroups(src) {
-  const rows = src.rows || [];
-  return {
-    works: src.works || rows.filter((r) => !r.kind || r.kind === "work"),
-    materials: src.materials || rows.filter((r) => r.kind === "material"),
-    others: src.others || rows.filter((r) => r.kind === "other"),
-  };
-}
-
-/* таблица стороны расчёта в карточке документа: buy — закупочная (внутренний бюджет), sale — продажная */
-function sideTable(rows, nameKey, isInt, title, mark) {
-  const price = (r) => (isInt ? r.price_buy : r.price);
-  const cost = (r) => (isInt ? rowSebOf(r) : (r.cost != null ? r.cost : workCost(r.qty, r.price)));
-  const body = rows.map((r, i) => `
-    <tr>
-      <td>${i + 1}</td><td class="muted">${esc(r.room || "—")}</td><td>${esc(r[nameKey])}${r.merged ? ` <span class="delta-chip delta-muted">объединённая строка</span>` : ""}${mark ? ` <span class="delta-chip delta-muted">предварительная оценка</span>` : ""}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
-      <td class="num">${price(r) == null ? `<span class="muted">—</span>` : fmtM2(price(r))}</td>
-      <td class="num">${cost(r) == null ? `<span class="muted">—</span>` : fmtM2(cost(r))}</td>
-    </tr>`).join("");
+/* позиции КП в карточке документа (ТЗ "Финансы" 2.7): рассчитанные продажные цены, диапазон материалов — границами */
+function kpDocBlock(p, d) {
+  const rows = (d.kp && d.kp.rows) || [];
+  if (!rows.length) return "";
+  const body = rows.map((r, i) => {
+    const name = r.kind === "work" ? r.work : r.name;
+    const priceCell = r.range ? `от ${fmtM2(r.range.lo)} до ${fmtM2(r.range.hi)}` : (r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price));
+    const costCell = r.range ? `<span class="muted">диапазон</span>` : (kpRowCost(r) == null ? `<span class="muted">—</span>` : fmtM2(kpRowCost(r)));
+    return `<tr>
+      <td>${i + 1}</td><td class="muted">${esc(r.room || "—")}</td>
+      <td>${esc(name)}${r.merged ? ` <span class="delta-chip delta-muted">объединённая строка</span>` : ""}${r.kind === "material" ? ` <span class="delta-chip delta-muted">предварительная оценка</span>` : ""}</td>
+      <td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
+      <td class="num">${priceCell}</td><td class="num">${costCell}</td>
+    </tr>`;
+  }).join("");
+  const exact = r2(rows.filter((r) => !r.range).reduce((a, r) => a + (kpRowCost(r) || 0), 0));
+  const ranges = rows.filter((r) => r.range);
+  const totals = `<div>Оценено точно: <b>${fmtM2(exact)}</b>${ranges.length ? ` · материалы — предварительно, границами: ${ranges.map((r) => `${fmtM2(r.range.lo)}–${fmtM2(r.range.hi)}`).join("; ")}` : ""}</div>
+    <div>НДС 19 %: <b>${fmtM2(vatOf(exact))}</b> · Итого с НДС (без диапазона): <b>${fmtM2(r2(exact + vatOf(exact)))}</b></div>`;
   return `
+    <div class="sect-title" style="margin-top:14px">Позиции КП</div>
+    ${d.kp.extra ? `<div class="svod-src" style="margin-bottom:8px">Дополнительный состав — позиции вне согласованной редакции сметы</div>` : ""}
+    <div class="tbl-wrap"><table class="tbl">
+      <thead><tr><th>#</th><th>Помещение</th><th>Наименование</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>
+    <div class="budget-summary">${totals}</div>`;
+}
+
+/* таблицы сохранённой редакции сметы в карточке документа (ТЗ "Финансы" 2.6): значения сохранены в самой редакции и не пересчитываются */
+function estDocBlock(p, d) {
+  const v = estById(p, d.est);
+  if (!v) return "";
+  const rowHtml = (r, i, nameKey, withStage) => `
+    <tr>
+      <td>${i + 1}</td>${withStage ? `<td class="muted">${esc(workStageLabel(r.stage))}</td>` : ""}<td>${esc(r.room || r.name)}</td><td>${esc(r[nameKey] || r.name)}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
+      <td class="num">${r.price_buy == null ? `<span class="muted">—</span>` : fmtM2(r.price_buy)}</td>
+      <td class="num">${r.seb == null ? `<span class="muted">—</span>` : fmtM2(r.seb)}</td>
+      <td class="num">${r.k1 == null ? `<span class="muted">—</span>` : fmtQty(r.k1)}</td>
+      <td class="num">${r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price)}</td>
+      <td class="num">${r.cost == null ? `<span class="muted">—</span>` : fmtM2(r.cost)}</td>
+    </tr>`;
+  const tbl = (rows, title, nameKey, withStage) => rows.length ? `
     <div class="sect-title" style="margin-top:14px">${esc(title)}</div>
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Помещение</th><th>${nameKey === "work" ? "Работа" : "Наименование"}</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">${isInt ? "Вн. цена за ед., €" : "Цена за ед., €"}</th><th class="num">${isInt ? "Себестоимость, €" : "Стоимость, €"}</th></tr></thead>
-      <tbody>${body}</tbody>
-    </table></div>`;
+      <thead><tr><th>#</th>${withStage ? "<th>Стадия</th>" : ""}<th>${withStage ? "Помещение" : "Наименование"}</th><th>${withStage ? "Работа" : "Описание"}</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th></tr></thead>
+      <tbody>${rows.map((r, i) => rowHtml(r, i, nameKey, withStage)).join("")}</tbody>
+    </table></div>` : "";
+  const sale = estSaleOf(v);
+  const gain = estGainOf(v);
+  return `
+    <div class="sect-title" style="margin-top:14px">Редакция сметы · ${esc(v.id)}</div>
+    <div class="svod-src" style="margin-bottom:8px">${esc(v.label)} · ${fmtDate(v.date)} · состояние: ${esc(estStateLabel(v))}${v.agree ? ` — ${esc(v.agree.who)}, ${fmtDate(v.agree.date)}${v.agree.note ? ` (${esc(v.agree.note)})` : ""}` : ""} · значения сохранены на момент фиксации и не пересчитываются</div>
+    ${tbl(v.works || [], "СМР и отделочные работы", "work", true)}
+    ${tbl(v.materials || [], "Материалы", "name", false)}
+    ${tbl(v.others || [], "Проектные, сопутствующие и повременные работы", "name", false)}
+    <div class="budget-summary">
+      <div>Себестоимость: <b>${fmtM2(estSebOf(v))}</b> · Стоимость: <b>${fmtSale(sale)}</b></div>
+      ${v.coef2 && v.coef2.added ? `<div>Вознаграждение дизайнера (${esc(v.coef2.purpose || "Коэф. 2")}): <b>${fmtM2(gain)}</b> — плановый расход</div>` : ""}
+    </div>`;
 }
 
-/* карточка документа: клик по строке реестра */
+/* ТЗ "Карточка проекта" 2.4: переходы этапа по согласованиям; повторная отметка повторного перехода не создаёт */
+function applyAgreement(p, d) {
+  if (d.type === "КП" && p.stage === "predproekt") {
+    p.stage = "smr";
+    logChange(p, "Документы", `этап проекта: Предпроектные работы → СМР и отделочные работы — согласовано КП "${d.name}". Переход фиксирует принятие предложения, а не окончательность объёмов и цен; договор и предоплата — отдельные события`);
+    return;
+  }
+  if (d.type === "Акт выполненных работ") {
+    // охваченные актом позиции получают состояние "Выполнена" с основанием (ТЗ "Карточка проекта", 2.2)
+    ((d.act && d.act.wids) || []).forEach((id) => {
+      const w = (p.works || []).find((x) => x.id === id);
+      if (w && w.wstate !== "done") { w.wstate = "done"; w.why = `${d.name}, ${fmtDate(d.date)}`; }
+    });
+    if (p.stage === "smr") {
+      if (!openWorks(p).length) {
+        p.stage = "postproekt";
+        logChange(p, "Документы", `этап проекта: СМР и отделочные работы → Пост-проектные работы — согласован "${d.name}", открытых работ не осталось`);
+      } else {
+        logChange(p, "Документы", `согласован "${d.name}"; открытых работ осталось: ${openWorks(p).length} — этап "СМР и отделочные работы" сохранён`);
+      }
+    }
+  }
+}
+
+/* карточка документа (ТЗ "Документы" §2–3): события с собственными датами; действия зависят от назначения */
 function openDocCard(p, d) {
-  const st = DOC_STATUSES[d.status] || { label: d.status, cls: "" };
+  const st = docState(d);
   const frow = (label, valueHtml) => `<tr><td class="fld">${label}</td><td>${valueHtml}</td></tr>`;
   const plain = (v) => (v ? esc(v) : `<span class="muted">—</span>`);
-  // ТЗ "Документы": названия полей следуют направлению; версия — только у исходящих и внутренних
-  const partyLabel = { in: "От кого", out: "Кому", int: "Автор" }[d.dir] || "Корреспондент";
-  const dateLabel = d.dir === "in" ? "Дата получения" : "Дата отправки";
-  const hasVersion = d.dir !== "in";
-  // ТЗ "Финансы", основание состава работ: у счёта оплатенность вычисляется из распределённых поступлений
-  const isInvoice = d.type === "Счёт" && d.dir === "out";
+  // ТЗ "Финансы", операции: оплачивенность счёта вычисляется из распределённых поступлений
+  const isInvoice = d.type === "Счёт" && p.client && d.party === p.client.name;
   let invRows = "";
   if (isInvoice) {
     const paid = finTotals(p).paidMap.get(normDoc(d.name)) || 0;
@@ -1164,193 +1257,210 @@ function openDocCard(p, d) {
     const payCls = paid <= 0 ? "chip-doc-draft" : (paid + 0.001 < amount ? "chip-doc-processing" : "chip-doc-approved");
     invRows = frow("Сумма", amount ? fmtM2(amount) : `<span class="muted">—</span>`)
       + frow("Распределённые поступления", fmtM2(paid))
-      + frow("Оплаченность", `<span class="chip ${payCls}">${payState}</span>`);
+      + frow("Оплачивенность", `<span class="chip ${payCls}">${payState}</span>`);
   }
-  const cycle = {
-    in: "Получен → В обработке → Обработан. Регистрация входящего не означает принятия обязательства или согласия с содержанием.",
-    out: "Черновик → Готов к отправке → Отправлен. Загрузка файла не устанавливает \"Отправлен\"; дата отправки заполняется событием отправки.",
-    int: "Черновик → Утверждён, если виду документа требуется утверждение.",
-  }[d.dir] || "";
-  let kpBlock = "";
-  if (d.kp || d.budget) {
-    const isKp = !!d.kp;
-    const b = d.budget;
-    const isInt = !isKp && b.kind === "int";
-    const g = docGroups(isKp ? d.kp : b);
-    const sideRows = [...g.works, ...g.materials, ...g.others].map((r) => ({
-      cost: isInt ? rowSebOf(r) : (r.cost != null ? r.cost : workCost(r.qty, r.price)),
-    }));
-    const evaluated = sideRows.filter((x) => x.cost != null);
-    const sumCost = r2(evaluated.reduce((a, x) => a + x.cost, 0));
-    let tables = "";
-    if (g.works.length) tables += sideTable(g.works, "work", isInt, "Работы");
-    if (g.materials.length) tables += sideTable(g.materials, "name", isInt, "Материалы" + (isInt ? "" : " — предварительная оценка"), !isInt);
-    if (g.others.length) tables += sideTable(g.others, "name", isInt, "Проектные, сопутствующие и повременные работы");
-    let totals;
-    if (isInt) {
-      const gain = fixGain(b);
-      totals = `<div>Себестоимость строк: <b>${fmtM2(sumCost)}</b> (${evaluated.length} поз.)</div>`
-        + (b.coef2 && b.coef2.added
-          ? `<div>Вознаграждение дизайнера (${esc(b.coef2.purpose || "Коэф. 2")}): <b>${fmtM2(gain)}</b></div><div>Общий объём плановых затрат: <b>${fmtM2(r2(sumCost + gain))}</b></div>`
-          : `<div>Коэф. 2 не добавлен — вознаграждение дизайнера не возникает; общий объём плановых затрат: <b>${fmtM2(sumCost)}</b></div>`);
-    } else {
-      totals = `<div>Оценено: <b>${fmtM2(sumCost)}</b> (${evaluated.length} поз.)</div>`
-        + `<div>НДС 19 %: <b>${fmtM2(vatOf(sumCost))}</b> · Итого с НДС: <b>${fmtM2(r2(sumCost + vatOf(sumCost)))}</b></div>`;
-    }
-    kpBlock = `
-      <div class="sect-title" style="margin-top:14px">${isKp ? "Позиции КП" : "Позиции зафиксированной версии"}</div>
-      ${isKp && d.kp.extra ? `<div class="svod-src" style="margin-bottom:8px">Дополнительный состав — позиции вне согласованного Бюджета клиента</div>` : ""}
-      ${!isKp ? `<div class="svod-src" style="margin-bottom:8px">${esc(b.label)} · источник — "Финансы", вид бюджета</div>` : ""}
-      ${tables}
-      <div class="budget-summary">${totals}</div>
-      <div class="modal-actions">
-        <button class="btn-primary" id="${isKp ? "kp-export" : "bud-export"}" type="button">Выгрузить PDF</button>
-      </div>`;
+  // события: каждое с собственной датой и подтверждением; события не стирают друг друга
+  const evRows = docEvents(d).map((e) => {
+    const ev = DOC_EVENTS[e.kind] || { label: e.kind, cls: "" };
+    return `<tr><td><span class="chip ${ev.cls}">${esc(ev.label)}</span></td><td class="muted">${fmtDate(e.date)}</td><td>${esc(e.who || "—")}</td><td class="muted">${esc(e.note || "—")}</td></tr>`;
+  }).join("");
+  const estV = d.est ? estById(p, d.est) : null;
+  let actBlock = "";
+  if (d.act) {
+    const rowsHtml = (d.act.wids || []).map((id, i) => {
+      const w = (p.works || []).find((x) => x.id === id);
+      return `<tr>
+        <td>${i + 1}</td>
+        <td>${w ? esc(workName(w)) : `<span class="muted">#${id} — исключена из состава</span>`}</td>
+        <td>${wstateChip(w || { wstate: "excluded" })}${w && w.why ? `<div class="svod-src">${esc(w.why)}</div>` : ""}</td>
+      </tr>`;
+    }).join("");
+    actBlock = `
+      <div class="sect-title" style="margin-top:14px">Охваченные работы</div>
+      <div class="tbl-wrap"><table class="tbl">
+        <thead><tr><th>#</th><th>Работа состава</th><th>Состояние</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>`;
   }
   let planBlock = "";
   if (d.plan) {
     const v = (p.fix_plan || []).find((x) => x.version === d.plan);
     if (v) planBlock = `
       <div class="sect-title" style="margin-top:14px">Позиции зафиксированного плана</div>
-      <div class="svod-src" style="margin-bottom:8px">${esc(v.label)} · предпосылка ${esc(v.premise)} · календарь: ${esc(v.calendar)}${v.start ? ` · начальная дата ${fmtDate(v.start)}` : ""} · файл норм, версия ${esc(v.norms || DATA.norms.version)} · источник — "График"</div>
+      <div class="svod-src" style="margin-bottom:8px">${esc(v.label || "Календарный план")} ${esc(v.version || "")} · предпосылка ${esc(v.premise || "—")} · календарь: ${esc(v.calendar || "—")}${v.start ? ` · начальная дата ${fmtDate(v.start)}` : ""} · файл норм, версия ${esc(v.norms || DATA.norms.version)} · снимок плана входит в зафиксированный набор</div>
       <div class="tbl-wrap"><table class="tbl">
-        <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Статус</th></tr></thead>
-        <tbody>${v.rows.map((r, i) => `<tr>
-          <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td>
-          <td class="muted">${r.start ? fmtDate(r.start) : "[ ]"}</td><td class="muted">${r.finish ? fmtDate(r.finish) : "[ ]"}</td>
-          <td><span class="chip chip-stage">Запланировано</span></td>
-        </tr>`).join("")}</tbody>
+        <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Состояние работы</th></tr></thead>
+        <tbody>${v.rows.map((r, i) => {
+          const w = (p.works || []).find((x) => x.id === r.wid);
+          return `<tr>
+            <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td>
+            <td class="muted">${r.start ? fmtDate(r.start) : "[ ]"}</td><td class="muted">${r.finish ? fmtDate(r.finish) : "[ ]"}</td>
+            <td>${w ? wstateChip(w) : `<span class="chip chip-doc-draft">Исключена</span>`}</td>
+          </tr>`;
+        }).join("")}</tbody>
       </table></div>`;
   }
+  // действия (ТЗ "Документы" §2): отправка и получение — взаимоисключающие; согласование — после отправки или получения
+  const hasMove = docHasEvent(d, "sent") || docHasEvent(d, "received");
+  const canAgree = ["КП", "Смета", "Акт выполненных работ"].includes(d.type) && !docHasEvent(d, "agreed") && hasMove;
+  const canApprove = ["Смета", "Календарный план"].includes(d.type) && !docHasEvent(d, "approved");
   mountModal(`
-    <div class="modal${(d.kp || d.budget || d.plan) ? " wide" : ""}">
+    <div class="modal${(d.kp || estV || d.act || d.plan) ? " wide" : ""}">
       <div class="modal-title">Карточка документа</div>
       <div class="tbl-wrap"><table class="tbl tbl-fields">
         <tbody>
           ${frow("Название", esc(d.name))}
           ${frow("Тип", esc(d.type))}
-          ${frow("Направление", dirNoun[d.dir] || "—")}
-          ${frow(partyLabel, plain(d.party))}
-          ${frow("Дата документа", plain(d.date_doc ? fmtDate(d.date_doc) : null))}
-          ${d.dir !== "int" ? frow(dateLabel, plain(d.date ? fmtDate(d.date) : null)) : ""}
-          ${frow("Статус", `<span class="chip ${st.cls}">${esc(st.label)}</span>`)}
-          ${hasVersion ? frow("Версия", plain(d.version)) : ""}
+          ${frow("Дата документа", plain(fmtDate(d.date)))}
+          ${frow("Корреспондент", plain(d.party))}
+          ${d.version ? frow("Версия", plain(d.version)) : ""}
+          ${frow("Состояние", `<span class="chip ${st.cls}">${esc(st.label)}</span>`)}
           ${d.file ? frow("Вложение", esc(d.file)) : ""}
-          ${d.uploaded_by ? frow("Загрузил сотрудник", esc(d.uploaded_by)) : ""}
           ${d.link_work ? frow("Связь с работой состава", esc(d.link_work)) : ""}
           ${d.link_task ? frow("Связь с задачей", esc(d.link_task)) : ""}
           ${d.link_op ? frow("Связь с операцией", esc(d.link_op)) : ""}
           ${invRows}
         </tbody>
       </table></div>
-      ${kpBlock}
+      <div class="sect-title" style="margin-top:14px">События</div>
+      ${evRows
+        ? `<div class="tbl-wrap"><table class="tbl">
+            <thead><tr><th>Событие</th><th>Дата</th><th>Кто</th><th>Подтверждение</th></tr></thead>
+            <tbody>${evRows}</tbody>
+          </table></div>`
+        : `<div class="empty">Событий нет — документ в состоянии "Черновик"</div>`}
+      ${d.kp ? kpDocBlock(p, d) : ""}
+      ${estV ? estDocBlock(p, d) : ""}
+      ${actBlock}
       ${planBlock}
-      <div class="note">Жизненный цикл (${dirNoun[d.dir] || "—"}): ${cycle}${isInvoice ? " Оплаченность вычисляется из распределения подтверждённых поступлений (\"Финансовые операции\") и вручную не устанавливается." : ""}</div>
+      <div class="modal-actions">
+        ${!hasMove ? `<button class="btn-ghost" id="dcs-send" type="button">Зарегистрировать отправку</button>
+        <button class="btn-ghost" id="dcs-receive" type="button">Зарегистрировать получение</button>` : ""}
+        ${canAgree ? `<button class="btn-primary" id="dcs-agree" type="button">Отметить согласование</button>` : ""}
+        ${canApprove ? `<button class="btn-ghost" id="dcs-approve" type="button">Утвердить внутри компании</button>` : ""}
+        ${estV ? `<button class="btn-ghost" id="dcs-export" type="button">Выгрузить PDF</button>` : ""}
+      </div>
+      <div class="note">Состояние — последнее зарегистрированное событие; события не стирают друг друга: у согласованного документа остаются даты фиксации и отправки. Согласование с клиентом доступно для КП, сметы и акта выполненных работ после отправки или получения; согласие не выводится из этапа проекта. Согласование КП переводит проект из предпроектных работ в СМР и отделочные работы, согласование акта закрывает охваченные работы и при отсутствии открытых работ переводит проект в пост-проектные работы; повторная отметка повторного перехода не создаёт.</div>
     </div>`);
-  const ex = document.getElementById("kp-export");
-  if (ex) ex.addEventListener("click", () => exportPdf(kpHtml(p, d)));
-  const bex = document.getElementById("bud-export");
-  if (bex) bex.addEventListener("click", () => exportPdf(budgetHtml(p, d)));
+  const bindEv = (id, kind) => {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener("click", () => openDocEvent(p, d, kind));
+  };
+  bindEv("dcs-send", "sent");
+  bindEv("dcs-receive", "received");
+  bindEv("dcs-agree", "agreed");
+  bindEv("dcs-approve", "approved");
+  const ex = document.getElementById("dcs-export");
+  if (ex) ex.addEventListener("click", () => exportPdf(estHtml(p, d)));
 }
 
-/* ТЗ "Документы": "Добавить документ" — карточка документа; вкладка задаёт направление по умолчанию,
-   названия полей и события следуют направлению */
+/* регистрация события документа (ТЗ "Документы" §2): отправка, получение, согласование, внутреннее утверждение */
+function openDocEvent(p, d, kind) {
+  const F = {
+    sent: { title: "Зарегистрировать отправку", who: "Кто отправил", whoDef: "Демо-пользователь", note: "Подтверждение отправки", notePh: "электронная почта, мессенджер" },
+    received: { title: "Зарегистрировать получение", who: "Отправитель", whoDef: "", note: "Подтверждение получения", notePh: "входящее письмо, передача" },
+    agreed: { title: "Отметить согласование с клиентом", who: "Кто согласовал", whoDef: p.client ? p.client.name : "", note: "Где подтверждение", notePh: "электронная почта, встреча, мессенджер" },
+    approved: { title: "Утвердить внутри компании", who: "Утвердивший сотрудник", whoDef: p.pm ? p.pm.name : "", note: "Решение (основание)", notePh: "" },
+  }[kind];
+  mountModal(`
+    <div class="modal">
+      <div class="modal-title">${esc(F.title)} — ${esc(d.name)}</div>
+      <div class="form-skel">
+        <label>${esc(F.who)}</label>
+        <input id="de-who" type="text" autocomplete="off" value="${esc(F.whoDef)}">
+        <label>Когда</label>
+        <input id="de-date" type="date" value="${todayIso()}">
+        <label>${esc(F.note)}</label>
+        <input id="de-note" type="text" autocomplete="off" placeholder="${esc(F.notePh)}">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="de-cancel" type="button">Отмена</button>
+        <button class="btn-primary" id="de-save" type="button">Зарегистрировать</button>
+      </div>
+      ${kind === "agreed" ? `<div class="note">Согласование — событие документа, не этапа проекта. Для КП переход в СМР обозначает принятие предложения, а не окончательность объёмов и цен; для акта закрываются охваченные работы. События не стирают друг друга: после согласования остаются даты фиксации и отправки.</div>` : `<div class="note">Событие получает собственную дату и подтверждение; состояние документа — последнее событие.</div>`}
+    </div>`);
+  document.getElementById("de-cancel").addEventListener("click", closeAnyModal);
+  document.getElementById("de-save").addEventListener("click", () => {
+    const whoEl = document.getElementById("de-who");
+    const who = whoEl.value.trim();
+    if (!who) { whoEl.classList.add("input-err"); whoEl.focus(); return; }
+    const date = document.getElementById("de-date").value || todayIso();
+    const note = document.getElementById("de-note").value.trim() || null;
+    d.events = [...docEvents(d), { kind, date, who, note }];
+    if (kind === "agreed") {
+      const v = d.est ? estById(p, d.est) : null;
+      if (v && v.state !== "agreed") {
+        v.state = "agreed";
+        v.agree = { who, date, note };
+        // согласование КП — принятие ориентировочного предложения, не окончательной сметы (ТЗ "Финансы" 2.7);
+        // КП на дополнительный состав фиксирует новую согласованную редакцию целиком
+        if (d.type === "КП" && !(d.kp && d.kp.extra)) v.viaKp = true;
+      }
+      applyAgreement(p, d);
+      logChange(p, "Документы", `"${d.name}": согласование с клиентом — ${who}, ${fmtDate(date)}${note ? ` (${note})` : ""}`);
+    } else {
+      const labels = { sent: "зарегистрирована отправка", received: "зарегистрировано получение", approved: "утверждение внутри компании" };
+      logChange(p, "Документы", `"${d.name}": ${labels[kind] || kind} — ${who}, ${fmtDate(date)}`);
+    }
+    closeAnyModal();
+    render();
+  });
+  document.getElementById("de-who").focus();
+}
+
+/* ТЗ "Документы" §2: "Добавить документ" — единая форма без направления;
+   отправка и получение регистрируются событиями, а не выводятся из типа */
 function openAddDoc(p) {
   const works = p.works || [];
   const tasks = p.tasks || [];
-  const defDir = docDir !== "all" ? docDir : "in";
   mountModal(`
     <div class="modal">
       <div class="modal-title">Добавить документ</div>
       <div class="form-skel">
         <label>Название</label>
-        <input id="dc-name" type="text" autocomplete="off" placeholder="Счёт №3.pdf">
+        <input id="dc-name" type="text" autocomplete="off" placeholder="Счёт №3">
         <label>Тип</label>
         <select id="dc-type">${DOC_TYPES.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}</select>
-        <label>Направление</label>
-        <select id="dc-dir">${DOC_DIRS.map((d) => `<option value="${d.id}"${d.id === defDir ? " selected" : ""}>${esc(d.label)}</option>`).join("")}</select>
-        <label id="lb-party">От кого</label>
-        <input id="dc-party" type="text" autocomplete="off">
         <label>Дата документа</label>
-        <input id="dc-date-doc" type="date">
-        <label id="lb-date">Дата получения</label>
-        <input id="dc-date" type="date">
-        <div id="dc-date-hint" class="svod-src" style="margin-top:4px"></div>
-        <label id="lb-version">Версия</label>
-        <input id="dc-version" type="text" autocomplete="off" value="v1">
-        <label>Вложение (имя файла)</label>
-        <input id="dc-file" type="text" autocomplete="off" placeholder="document.pdf">
-        <label>Загрузил сотрудник (у входящего — не отправитель)</label>
-        <input id="dc-uploaded" type="text" autocomplete="off">
+        <input id="dc-date" type="date" value="${todayIso()}">
+        <label>Корреспондент</label>
+        <input id="dc-party" type="text" autocomplete="off" placeholder="клиент, контрагент или сотрудник">
+        <label>Сумма, € (для типа "Счёт")</label>
+        <input id="dc-amount" type="number" min="0" step="any">
         <label>Связь с работой состава</label>
         <select id="dc-work"><option value="">— без связи</option>${works.map((w) => `<option value="${esc(workName(w))}">${esc(workName(w))}</option>`).join("")}</select>
         <label>Связь с задачей</label>
         <select id="dc-task"><option value="">— без связи</option>${tasks.map((t) => `<option value="${esc("№" + t.num + " " + t.title)}">${esc("№" + t.num + " " + t.title)}</option>`).join("")}</select>
         <label>Связь с операцией</label>
         <select id="dc-op"><option value="">— без связи</option>${(p.ops || []).map((o) => `<option value="${esc(fmtDate(o.date) + " · " + o.purpose)}">${esc(fmtDate(o.date) + " · " + o.purpose)}</option>`).join("")}</select>
-        <label>Сумма, € (для типа "Счёт" — учёт "К оплате сейчас")</label>
-        <input id="dc-amount" type="number" min="0" step="any">
       </div>
       <div class="modal-actions">
         <button class="btn-ghost" id="dc-cancel" type="button">Отмена</button>
         <button class="btn-primary" id="dc-save" type="button">Добавить</button>
       </div>
-      <div class="note">Демо: документ добавляется в данные страницы, до перезагрузки. Направление задаёт стартовый статус: входящий — "Получен", исходящий и внутренний — "Черновик". Версия — номер редакции, составленной компанией: есть у исходящих и внутренних; входящие версий не имеют — новая редакция от контрагента регистрируется новым документом.</div>
+      <div class="note">Демо: документ добавляется в данные страницы, до перезагрузки. Новый документ получает состояние "Черновик"; фиксация, отправка, получение, согласование и внутреннее утверждение регистрируются событиями в карточке документа — получение и отправка не выводятся из типа. Счёт с получателем-клиентом учитывается в расчёте требований после регистрации отправки.</div>
     </div>`);
-
-  // названия полей следуют выбранному направлению (ТЗ "Документы")
-  const relabel = () => {
-    const dir = document.getElementById("dc-dir").value;
-    const partyLb = { in: "От кого", out: "Кому", int: "Автор" }[dir] || "Корреспондент";
-    const dateLb = { in: "Дата получения", out: "Дата отправки" }[dir];
-    document.getElementById("lb-party").textContent = partyLb;
-    const dateRow = document.getElementById("lb-date");
-    const dateInp = document.getElementById("dc-date");
-    const hint = document.getElementById("dc-date-hint");
-    dateRow.style.display = dateLb ? "" : "none";
-    dateInp.style.display = dateLb ? "" : "none";
-    hint.style.display = dateLb ? "" : "none";
-    if (dateLb) {
-      dateRow.textContent = dateLb;
-      hint.textContent = dir === "in" ? "Заполняется при регистрации получения" : "Заполняется событием отправки; пустая — не отправлен";
-    }
-    const verRow = document.getElementById("lb-version");
-    const verInp = document.getElementById("dc-version");
-    const showVer = dir !== "in";
-    verRow.style.display = showVer ? "" : "none";
-    verInp.style.display = showVer ? "" : "none";
-  };
-  document.getElementById("dc-dir").addEventListener("change", relabel);
-  relabel();
-
   document.getElementById("dc-cancel").addEventListener("click", closeAnyModal);
   document.getElementById("dc-save").addEventListener("click", () => {
     const nameEl = document.getElementById("dc-name");
     const name = nameEl.value.trim();
     if (!name) { nameEl.classList.add("input-err"); nameEl.focus(); return; }
     const rd = (id) => document.getElementById(id).value.trim();
-    const dir = document.getElementById("dc-dir").value;
-    const amount = parseFloat(rd("dc-amount"));
     const doc = {
       name,
       type: document.getElementById("dc-type").value,
-      dir,
+      date: rd("dc-date") || todayIso(),
       party: rd("dc-party"),
-      date_doc: rd("dc-date-doc") || null,
-      // ТЗ "Документы": дата получения или отправки — отдельное событие; у исходящего без отправки пустая дата
-      date: dir === "out" ? (rd("dc-date") || null) : (rd("dc-date") || rd("dc-date-doc") || null),
-      status: docStatusByDir[dir] || "draft",
-      version: rd("dc-version") || "v1",
-      file: rd("dc-file") || null,
-      uploaded_by: rd("dc-uploaded") || null,
+      events: [],
+      file: null,
       link_work: rd("dc-work") || null,
       link_task: rd("dc-task") || null,
       link_op: rd("dc-op") || null,
     };
+    const amount = parseFloat(rd("dc-amount"));
     if (Number.isFinite(amount)) doc.amount = amount;
     p.docs = [...(p.docs || []), doc];
-    logChange(p, "Документы", `добавлен документ "${name}" (${dirNoun[dir]}, ${doc.type})`);
-    docDir = dir;
+    logChange(p, "Документы", `добавлен документ "${name}" (${doc.type}) — черновик`);
     closeAnyModal();
     render();
   });
@@ -1383,138 +1493,148 @@ const printCss = `
   @media print { body { margin: 12mm; } }
 `;
 
-/* печатная таблица стороны расчёта: buy — закупочная, sale — продажная */
-function printSideTable(rows, nameKey, isInt, title) {
-  const price = (r) => (isInt ? r.price_buy : r.price);
-  const cost = (r) => (isInt ? rowSebOf(r) : (r.cost != null ? r.cost : workCost(r.qty, r.price)));
-  const body = rows.map((r, i) => `
+/* печатная таблица клиентской стороны (ТЗ "Финансы" 2.8): рассчитанные цены, сохранённые в документе;
+   диапазонные материалы — границами, как в интерфейсе */
+function printRows(rows, title) {
+  const body = rows.map((r, i) => {
+    const name = r.kind === "work" ? r.work : r.name;
+    const price = r.range ? `от ${fmtM2(r.range.lo)} до ${fmtM2(r.range.hi)}` : (r.price == null ? "—" : fmtM2(r.price));
+    const cost = r.range ? "предварительно" : (kpRowCost(r) == null ? "—" : fmtM2(kpRowCost(r)));
+    return `
     <tr>
-      <td>${i + 1}</td><td>${esc(r.room || "—")}</td><td>${esc(r[nameKey] || r.work || "")}${r.merged ? " (объединённая строка)" : ""}</td><td>${esc(r.unit)}</td>
+      <td>${i + 1}</td><td>${esc(r.room || "—")}</td><td>${esc(name)}${r.merged ? " (объединённая строка)" : ""}${r.kind === "material" ? " (предварительная оценка)" : ""}</td><td>${esc(r.unit)}</td>
       <td class="num">${fmtQty(r.qty)}</td>
-      <td class="num">${price(r) == null ? "—" : fmtM2(price(r))}</td>
-      <td class="num">${cost(r) == null ? "—" : fmtM2(cost(r))}</td>
-    </tr>`).join("");
+      <td class="num">${price}</td>
+      <td class="num">${cost}</td>
+    </tr>`;
+  }).join("");
   return `<h2>${esc(title)}</h2><table>
-    <thead><tr><th>#</th><th>Помещение</th><th>${nameKey === "work" ? "Работа" : "Наименование"}</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">${isInt ? "Вн. цена за ед., €" : "Цена за ед., €"}</th><th class="num">${isInt ? "Себестоимость, €" : "Стоимость, €"}</th></thead>
+    <thead><tr><th>#</th><th>Помещение</th><th>Наименование</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th></thead>
     <tbody>${body}</tbody></table>`;
 }
 
-/* тело выгрузки: три группы строк + итоги стороны (ТЗ "Финансы", бюджеты — стороны одного расчёта) */
-function docPrintBody(src, isInt) {
-  const g = docGroups(src);
-  let html = "";
-  if (g.works.length) html += printSideTable(g.works, "work", isInt, "Работы");
-  if (g.materials.length) html += printSideTable(g.materials, "name", isInt, "Материалы" + (isInt ? "" : " — предварительная оценка"));
-  if (g.others.length) html += printSideTable(g.others, "name", isInt, "Проектные, сопутствующие и повременные работы");
-  const side = [...g.works, ...g.materials, ...g.others]
-    .map((r) => ({ cost: isInt ? rowSebOf(r) : (r.cost != null ? r.cost : workCost(r.qty, r.price)) }))
-    .filter((x) => x.cost != null);
-  const sumCost = r2(side.reduce((a, x) => a + x.cost, 0));
-  let totals;
-  if (isInt) {
-    const gain = fixGain(src);
-    totals = `<div class="totals">
-      <div>Себестоимость строк: <b>${fmtM2(sumCost)}</b></div>
-      ${src.coef2 && src.coef2.added
-        ? `<div>Вознаграждение дизайнера (${esc(src.coef2.purpose || "Коэф. 2")}): <b>${fmtM2(gain)}</b></div>
-           <div>Общий объём плановых затрат: <b>${fmtM2(r2(sumCost + gain))}</b></div>`
-        : `<div>Общий объём плановых затрат: <b>${fmtM2(sumCost)}</b></div>`}
-      <div>Цены — плановая себестоимость без НДС; ставка НДС сохраняется в версии бюджета</div>
-    </div>`;
-  } else {
-    totals = `<div class="totals">
-      <div>Итого (без НДС): <b>${fmtM2(sumCost)}</b></div>
-      <div>НДС 19 %: <b>${fmtM2(vatOf(sumCost))}</b></div>
-      <div>Итого с НДС: <b>${fmtM2(r2(sumCost + vatOf(sumCost)))}</b></div>
-    </div>`;
-  }
-  return html + totals;
-}
-
-/* КП — исходящий документ типа "КП" (ТЗ "Финансы", КП); внутренние цены, коэффициенты и вознаграждение дизайнера в выгрузку не попадают */
+/* КП — документ типа "КП" (ТЗ "Финансы" 2.7): внутренние цены, коэффициенты и вознаграждение дизайнера
+   в выгрузку не попадают; YYNN — внутренний номер, в клиентской выгрузке названия проекта нет */
 function kpHtml(p, d) {
   const client = p.client ? p.client.name : "—";
+  const rows = (d.kp && d.kp.rows) || [];
+  const exact = r2(rows.filter((r) => !r.range).reduce((a, r) => a + (kpRowCost(r) || 0), 0));
+  const ranges = rows.filter((r) => r.range);
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>${esc(d.name)}</title><style>${printCss}</style></head>
 <body>
   <div class="brand">MELESHIN GROUP</div>
   <h1>Коммерческое предложение</h1>
-  <div class="meta">Проект: ${esc(p.name)} · Клиент: ${esc(client)} · Версия ${esc(d.version)} · от ${fmtDate(d.date_doc || d.date)}${d.kp && d.kp.extra ? " · дополнительный состав" : ""}</div>
-  ${docPrintBody(d.kp || {}, false)}
+  <div class="meta">Клиент: ${esc(client)} · Версия ${esc(d.version || "")} · от ${fmtDate(d.date)}${d.kp && d.kp.extra ? " · дополнительный состав" : ""}</div>
+  ${printRows(rows, "Состав работ")}
+  <div class="totals">
+    <div>Оценено точно: <b>${fmtM2(exact)}</b>${ranges.length ? `; материалы — предварительная оценка границами: ${ranges.map((r) => `${fmtM2(r.range.lo)}–${fmtM2(r.range.hi)}`).join("; ")}` : ""}</div>
+    <div>НДС 19 %: <b>${fmtM2(vatOf(exact))}</b></div>
+    <div>Итого с НДС (без диапазона): <b>${fmtM2(r2(exact + vatOf(exact)))}</b></div>
+  </div>
   <div class="ft">Выгрузка из симуляции карточки проекта. Внутренние цены, коэффициенты и вознаграждение дизайнера в КП не попадают.</div>
   <script>window.addEventListener("load", function () { window.print(); });</` + `script>
 </body></html>`;
 }
 
-/* выгрузка зафиксированного Бюджета клиента из вида с зафиксированной версией */
-function bcliHtml(p, v) {
+/* выгрузка сметы из карточки документа (ТЗ "Финансы" 2.6/2.8): клиентская сторона сохранённой редакции;
+   значения сохранены на момент фиксации и не пересчитываются */
+function estHtml(p, d) {
+  const v = estById(p, d.est);
+  if (!v) return "";
   const client = p.client ? p.client.name : "—";
-  return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>Бюджет клиента — ${esc(p.name)}</title><style>${printCss}</style></head>
-<body>
-  <div class="brand">MELESHIN GROUP</div>
-  <h1>Бюджет клиента</h1>
-  <div class="meta">Проект: ${esc(p.name)} · Клиент: ${esc(client)} · Версия ${esc(v.version)} · зафиксирован ${fmtDate(v.date)}${v.approved_by ? " · согласование: " + esc(v.approved_by) : ""}</div>
-  ${docPrintBody(v, false)}
-  <div class="ft">Зафиксированная версия: значения названий, единиц, количеств, цен и правил расчёта сохранены в самой версии. Выгрузка из симуляции карточки проекта.</div>
-  <script>window.addEventListener("load", function () { window.print(); });</` + `script>
-</body></html>`;
-}
-
-/* выгрузка зафиксированной версии бюджета из карточки документа (ТЗ "Документы", ТЗ "Финансы", версии) */
-function budgetHtml(p, d) {
-  const b = d.budget;
-  const isInt = b.kind === "int";
-  const client = p.client ? p.client.name : "—";
+  const wrows = (v.works || []).map((r) => ({ kind: "work", room: r.room, work: r.work, unit: r.unit, qty: r.qty, price: r.price }));
+  const mrows = (v.materials || []).map((r) => ({ kind: "material", name: r.name, unit: r.unit, qty: r.qty, price: r.price, range: r.range }));
+  const orows = (v.others || []).map((r) => ({ kind: "other", name: r.name, unit: r.unit, qty: r.qty, price: r.price }));
+  const sale = estSaleOf(v);
+  const agreeLine = v.agree ? ` · согласовано: ${esc(v.agree.who)}, ${fmtDate(v.agree.date)}` : "";
   return `<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><title>${esc(d.name)}</title><style>${printCss}</style></head>
 <body>
   <div class="brand">MELESHIN GROUP</div>
-  <h1>${isInt ? "Внутренний бюджет" : "Бюджет клиента"}</h1>
-  <div class="meta">Проект: ${esc(p.name)}${isInt ? "" : " · Клиент: " + esc(client)} · Версия ${esc(d.version)} · зафиксирован ${fmtDate(d.date_doc || d.date)}${b.approved_by ? " · согласование: " + esc(b.approved_by) : ""}</div>
-  ${docPrintBody(b, isInt)}
-  <div class="ft">Зафиксированная версия: значения названий, единиц, количеств, цен и правил расчёта сохранены в самой версии. ${isInt ? "Внутренний документ — вне клиентского документооборота." : ""} Выгрузка из симуляции карточки проекта.</div>
+  <h1>Смета</h1>
+  <div class="meta">Клиент: ${esc(client)} · Редакция ${esc(v.id)} · от ${fmtDate(v.date)}${agreeLine}</div>
+  ${wrows.length ? printRows(wrows, "СМР и отделочные работы") : ""}
+  ${mrows.length ? printRows(mrows, "Материалы — предварительная оценка") : ""}
+  ${orows.length ? printRows(orows, "Проектные, сопутствующие и повременные работы") : ""}
+  <div class="totals">
+    <div>Стоимость: <b>${fmtSale(sale)}</b>${sale.range ? " — диапазон предварительной оценки материалов" : ""}</div>
+    ${sale.range
+      ? `<div>НДС 19 %: от <b>${fmtM2(vatOf(sale.lo))}</b> до <b>${fmtM2(vatOf(sale.hi))}</b></div>
+         <div>Итого с НДС: от <b>${fmtM2(r2(sale.lo + vatOf(sale.lo)))}</b> до <b>${fmtM2(r2(sale.hi + vatOf(sale.hi)))}</b></div>`
+      : `<div>НДС 19 %: <b>${fmtM2(vatOf(sale.lo))}</b></div>
+         <div>Итого с НДС: <b>${fmtM2(r2(sale.lo + vatOf(sale.lo)))}</b></div>`}
+  </div>
+  <div class="ft">Зафиксированная редакция: значения названий, единиц, количеств и цен сохранены в самой редакции. Выгрузка из симуляции карточки проекта.</div>
   <script>window.addEventListener("load", function () { window.print(); });</` + `script>
 </body></html>`;
 }
 
 /* ---------------- Финансы (ТЗ "Финансы") ---------------- */
 
-/* ТЗ "Финансы", предварительный расчёт: место подготовки цен; три таблицы; бюджеты — стороны того же расчёта */
-function rCalc(p) {
+/* ТЗ "Финансы" 2.1–2.6: Сметы — единая страница; рабочая редакция — единственное место
+   изменения цен и коэффициентов; сохранённые редакции не пересчитываются */
+function rEst(p) {
+  if (estProject !== p) { estProject = p; estSel = "work"; }
   if (!p.coef2) p.coef2 = { added: false };
   if (!p.materials) p.materials = [];
   if (!p.others) p.others = [];
+  if (!p.est) p.est = [];
+  const list = estList(p);
+  const chips = `
+    <div class="subchips">
+      <button class="fchip${estSel === "work" ? " active" : ""}" data-ever="work" type="button">Рабочая редакция</button>
+      ${list.map((v, i) => `<button class="fchip${estSel === "e" + i ? " active" : ""}" data-ever="e${i}" type="button">${esc(v.label)} · ${esc(estStateLabel(v))} · ${fmtDate(v.date)}</button>`).join("")}
+    </div>`;
+  const idx = estSel.startsWith("e") ? +estSel.slice(1) : -1;
+  const v = idx >= 0 && idx < list.length ? list[idx] : null;
+  if (v) return chips + estFixedView(p, v);
+  return chips + rEstWorking(p);
+}
+
+/* рабочая редакция: три таблицы, ввод закупочных цен и коэффициентов; продажа пересчитывается, не вводится */
+function rEstWorking(p) {
   const added = c2added(p);
-  const k2h = added ? `<th class="num">Коэф. 2</th>` : "";
+  const delta = clientDelta(p);
   const numInp = (r, key, field, cls) => `<td class="num"><input class="${cls}" data-${key}="${r.id}" data-k="${field}" type="number" min="0" step="any" placeholder="—" value="${r[field] == null ? "" : r[field]}"></td>`;
-  const calcCells = (r, key) => `
+  const calcCells = (r, key, isWork) => `
       ${numInp(r, key, "price_buy", "price-inp")}
       <td class="num">${rowSebOf(r) == null ? `<span class="muted">—</span>` : fmtM2(rowSebOf(r))}</td>
-      ${numInp(r, key, "k1", "k-inp")}${added ? numInp(r, key, "k2", "k-inp") : ""}
-      <td class="num">${salePriceOf(r, added) == null ? `<span class="muted">—</span>` : fmtM2(salePriceOf(r, added))}</td>
-      <td class="num">${rowCostOf(r, added) == null ? `<span class="muted">—</span>` : fmtM2(rowCostOf(r, added))}</td>`;
+      ${numInp(r, key, "k1", "k-inp")}
+      <td class="num" title="ROUND(Вн. цена за ед. × Коэф. 1 × Коэф. 2; 1) — Коэф. 2 в произведении до округления">${salePriceOf(r, added, isWork) == null ? `<span class="muted">—</span>` : fmtM2(salePriceOf(r, added, isWork))}</td>
+      <td class="num">${rowCostOf(r, added, isWork) == null ? `<span class="muted">—</span>` : fmtM2(rowCostOf(r, added, isWork))}</td>`;
 
-  const wrows = (p.works || []).map((w, i) => `
-    <tr class="row-click" data-cwork="${w.id}" title="Открыть позицию (сведения и подсчёт объёма)">
-      <td>${i + 1}</td><td>${stageCell(w.stage)}</td><td>${esc(w.room)}</td><td>${esc(w.work)}</td><td>${esc(w.unit)}</td><td class="num">${fmtQty(w.qty)}</td>
-      ${calcCells(w, "cw")}
+  const wrows = (p.works || []).map((w, i) => {
+    const flag = delta && delta.flags.get(w.id);
+    const checkChip = w.price_check ? ` <span class="delta-chip delta-check">требует проверки цены</span>` : "";
+    return `
+    <tr class="row-click" data-cwork="${w.id}" title="Открыть строку: формула и Коэф. 2">
+      <td>${i + 1}</td><td>${stageCell(w.stage)}</td><td>${esc(w.room)}</td><td>${esc(w.work)}${flag ? ` <span class="delta-chip delta-${flag}">${flag === "added" ? "добавлено" : "изменено"}</span>` : ""}${checkChip}</td><td>${esc(w.unit)}</td><td class="num">${fmtQty(w.qty)}</td>
+      ${calcCells(w, "cw", true)}
       <td class="muted">${esc(w.comment || "—")}</td>
-    </tr>`).join("");
-  const mrows = p.materials.map((m, i) => `
+    </tr>`;
+  }).join("");
+  const mrows = (p.materials || []).map((m, i) => `
     <tr>
-      <td>${i + 1}</td><td>${esc(m.name)}</td><td>${esc(m.unit)}</td><td class="num">${fmtQty(m.qty)}</td>
-      ${calcCells(m, "cm")}
+      <td>${i + 1}</td><td>${esc(m.name)} <span class="delta-chip delta-muted">предварительная оценка</span></td><td>${esc(m.unit)}</td><td class="num">${fmtQty(m.qty)}</td>
+      ${m.range
+        ? `<td colspan="5" class="num">границы: <input class="price-inp" data-mr="${m.id}" data-k="lo" type="number" min="0" step="any" style="width:92px" value="${m.range.lo == null ? "" : m.range.lo}"> — <input class="price-inp" data-mr="${m.id}" data-k="hi" type="number" min="0" step="any" style="width:92px" value="${m.range.hi == null ? "" : m.range.hi}"></td>`
+        : calcCells(m, "cm", false)}
       <td><input class="cmt-inp" data-cm="${m.id}" data-k="comment" type="text" value="${esc(m.comment || "")}"></td>
       <td class="row-acts"><button class="row-btn" data-mdel="${m.id}" type="button" title="Исключить строку">✕</button></td>
     </tr>`).join("");
-  const orows = p.others.map((o, i) => `
+  const orows = (p.others || []).map((o, i) => `
     <tr>
       <td>${i + 1}</td><td>${esc(o.name)}</td><td>${esc(o.unit)}</td><td class="num">${fmtQty(o.qty)}</td>
-      ${calcCells(o, "co")}
+      ${calcCells(o, "co", false)}
       <td><input class="cmt-inp" data-co="${o.id}" data-k="comment" type="text" value="${esc(o.comment || "")}"></td>
       <td class="row-acts"><button class="row-btn" data-odel="${o.id}" type="button" title="Исключить строку">✕</button></td>
     </tr>`).join("");
 
   const tt = calcTotals(calcGroups(p), added);
   return `
+    <div class="budget-actions">
+      <button class="btn-ghost" id="btn-fix-est" type="button">Зафиксировать</button>
+      <button class="btn-primary" id="btn-make-kp" type="button">Сформировать КП</button>
+    </div>
     <div class="note fin-note">
       <label class="chk-row" style="margin:0">
         <input type="checkbox" id="calc-c2"${added ? " checked" : ""}>
@@ -1526,98 +1646,155 @@ function rCalc(p) {
     </div>
     <div class="sect-head" style="margin-top:12px"><div class="sect-title">1. Строительно-монтажные и отделочные работы</div></div>
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th>${k2h}<th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th></tr></thead>
-      <tbody>${wrows || `<tr><td colspan="13" class="muted">Состав не задан — добавьте строку или задайте позиции в "Основном"</td></tr>`}</tbody>
+      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th></tr></thead>
+      <tbody>${wrows || `<tr><td colspan="12" class="muted">Состав не задан — добавьте строку или задайте позиции в "Основном"</td></tr>`}</tbody>
     </table></div>
     <div class="comp-foot"><button class="btn-ghost" id="work-add" type="button">Добавить строку</button><span class="svod-src">позиция создаётся в общем составе — появляется и в "Основном"</span></div>
-    <div class="sect-head"><div class="sect-title">2. Материалы</div><div class="svod-src">общая предварительная оценка; закупки и отчётность по факту начинаются при выполнении работ</div></div>
+    <div class="sect-head"><div class="sect-title">2. Материалы</div><div class="svod-src">общая предварительная оценка — точными ценами или границами; закупки и отчётность по факту начинаются при выполнении работ</div></div>
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Материал</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th>${k2h}<th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th><th></th></tr></thead>
-      <tbody>${mrows || `<tr><td colspan="12" class="muted">Строк нет</td></tr>`}</tbody>
+      <thead><tr><th>#</th><th>Материал</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th><th></th></tr></thead>
+      <tbody>${mrows || `<tr><td colspan="11" class="muted">Строк нет</td></tr>`}</tbody>
     </table></div>
     <div class="comp-foot"><button class="btn-ghost" id="mat-add" type="button">Добавить строку</button></div>
     <div class="sect-head"><div class="sect-title">3. Проектные, сопутствующие и работы по повременной оценке</div></div>
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th>${k2h}<th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th><th></th></tr></thead>
-      <tbody>${orows || `<tr><td colspan="12" class="muted">Строк нет</td></tr>`}</tbody>
+      <thead><tr><th>#</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th><th class="num">Коэф. 1</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th><th>Комментарий</th><th></th></tr></thead>
+      <tbody>${orows || `<tr><td colspan="11" class="muted">Строк нет</td></tr>`}</tbody>
     </table></div>
     <div class="comp-foot"><button class="btn-ghost" id="oth-add" type="button">Добавить строку</button></div>
     <div class="budget-summary">
-      <div>Себестоимость (закупочная сторона): <b>${fmtM2(tt.buy.sum)}</b> (${tt.buy.cnt} поз. оценено)${tt.buy.unev ? ` · не оценено: ${tt.buy.unev} — пустая цена, коэффициент или количество означают неполный расчёт` : ""}</div>
-      <div>Стоимость (продажная сторона): <b>${fmtM2(tt.sale.sum)}</b> (${tt.sale.cnt} поз.)${tt.sale.unev ? ` · не оценено: ${tt.sale.unev}` : ""}</div>
+      <div>Себестоимость (закупочная сторона): <b>${fmtM2(tt.buy.sum)}</b> (${tt.buy.cnt} поз. оценено)${tt.buy.unev ? ` · не оценено: ${tt.buy.unev} — пустая цена, коэффициент или количество означают неполный расчёт; диапазонные материалы закупочной стороны не имеют` : ""}</div>
+      <div>Стоимость (продажная сторона): <b>${fmtSale(tt.sale)}</b> (${tt.sale.cnt} поз. оценено)${tt.sale.unev ? ` · не оценено: ${tt.sale.unev}` : ""}${tt.sale.range ? " · диапазон — предварительная оценка материалов" : ""}</div>
       ${added
-        ? `<div>Прирост от Коэф. 2 (${esc(p.coef2.purpose || "вознаграждение дизайнера")}): <b>${fmtM2(tt.gain)}</b> — плановый расход; в цену клиенту второй раз не добавляется</div>`
-        : `<div>Коэф. 2 не добавлен: цена за ед. = цене единицы до Коэф. 2</div>`}
+        ? `<div>Вознаграждение дизайнера (${esc(p.coef2.purpose || "Коэф. 2")}): <b>${fmtM2(tt.gain)}</b> — плановый расход; в цену клиенту второй раз не добавляется</div>`
+        : `<div>Коэф. 2 не добавлен — вознаграждение дизайнера не возникает</div>`}
+      ${delta
+        ? `<div>Изменение к согласованной редакции (${esc(delta.base.id)}, ${fmtDate(delta.base.date)}): <b>${delta.delta >= 0 ? "+" : ""}${fmtM2(delta.delta)}</b>${delta.excluded.length ? ` · исключено относительно согласованной: ${delta.excluded.map((r) => `"${esc(r.room)} / ${esc(r.work)}"`).join(", ")} — позиция сохранена в согласованной редакции` : ""}</div>`
+        : ""}
     </div>
-    <div class="note">Формулы строки: Себестоимость = ROUND(Кол-во × Вн. цена за ед.; 2); Цена за ед. = ROUND(Вн. цена за ед. × Коэф. 1; 1); Стоимость = ROUND(Кол-во × Цена за ед. × Коэф. 2; 1) — Коэф. 2 множит стоимость строки, только когда добавлен в расчёт проекта. Округление — правило воспроизводимого расчёта; итоги — суммы округлённых строк. Цена продажи вручную не заменяется: коммерческое решение выражается изменением коэффициентов. Состав и количества — из "Основного"; строка добавляется здесь или в "Основном" в один и тот же состав; правка из расчёта открывает ту же позицию, копии не создаётся.</div>`;
+    <div class="note">Формулы строки: Себестоимость = ROUND(Кол-во × Вн. цена за ед.; 2); Цена за ед. = ROUND(Вн. цена за ед. × Коэф. 1 × Коэф. 2; 1) — Коэф. 2 входит в произведение до округления и применяется только к строкам СМР и отделочных работ; Стоимость = ROUND(Кол-во × Цена за ед.; 2). Итоги — суммы округлённых строк; диапазонные материалы входят в Итого границами. Цена продажи вручную не заменяется: коммерческое решение выражается изменением коэффициентов. Состав и количества — из "Основного"; строка добавляется здесь или в "Основном" в один и тот же состав, копии не создаётся. "Зафиксировать" сохраняет редакцию и план в набор; "Сформировать КП" фиксирует набор и выпускает КП по выбранным позициям.</div>`;
+}
+
+/* сохранённая редакция (ТЗ "Финансы" 2.6): значения сохранены на момент фиксации и не пересчитываются */
+function estFixedView(p, v) {
+  const doc = (p.docs || []).find((x) => x.est === v.id) || null;
+  const working = calcTotals(calcGroups(p), c2added(p));
+  const sale = estSaleOf(v);
+  const dl = r2(working.sale.lo - sale.lo);
+  const canAgree = doc && ["КП", "Смета", "Акт выполненных работ"].includes(doc.type)
+    && !docHasEvent(doc, "agreed") && (docHasEvent(doc, "sent") || docHasEvent(doc, "received"));
+  return `
+    <div class="fix-cap"><b>${esc(v.label)} · ${esc(v.id)}</b> — зафиксирована ${fmtDate(v.date)}; значения сохранены в самой редакции и не пересчитываются</div>
+    ${estDocBlock(p, { est: v.id })}
+    <div class="budget-actions">
+      ${canAgree ? `<button class="btn-primary" id="btn-agree-est" type="button">Отметить согласование</button>` : ""}
+      ${doc ? `<button class="btn-ghost" id="btn-export-est" type="button">Выгрузить PDF</button>` : ""}
+    </div>
+    <div class="budget-summary">
+      <div>Рабочая редакция отличается по итогу стоимости: <b>${dl >= 0 ? "+" : ""}${fmtM2(dl)}</b> — изменения копятся в рабочей редакции с признаком "изменено"</div>
+      <div>Согласование регистрируется событием в карточке документа "${esc(doc ? doc.name : v.id)}"; события не стирают друг друга</div>
+    </div>`;
+}
+
+/* строка рабочей редакции: формула строки и значение Коэф. 2 (ТЗ "Финансы" 2.4–2.5) */
+function openEstRow(p, w) {
+  const added = c2added(p);
+  const k2 = rowK2(w, added, true);
+  const price = salePriceOf(w, added, true);
+  mountModal(`
+    <div class="modal">
+      <div class="modal-title">Строка сметы · ${esc(workName(w))}</div>
+      <div class="tbl-wrap"><table class="tbl tbl-fields"><tbody>
+        <tr><td class="fld">Формула</td><td>Себестоимость = ROUND(${fmtQty(w.qty)} × ${fmtM2(w.price_buy)}; 2) = <b>${fmtM2(rowSebOf(w))}</b><br>
+          Цена за ед. = ROUND(${fmtM2(w.price_buy)} × ${fmtQty(w.k1)} × ${fmtQty(k2)}; 1) = <b>${fmtM2(price)}</b><br>
+          Стоимость = ROUND(${fmtQty(w.qty)} × ${fmtM2(price)}; 2) = <b>${fmtM2(rowCostOf(w, added, true))}</b></td></tr>
+        <tr><td class="fld">Коэф. 2 строки</td><td>
+          <input id="er-k2" type="number" min="0" step="any" value="${w.k2 == null ? "" : w.k2}"${added ? "" : " disabled"}>
+          <div class="svod-src" style="margin-top:4px">${added ? "Значение строки входит в произведение до округления; действует только для строк СМР и отделочных работ" : "Коэф. 2 не добавлен в расчёт проекта — значение строки не действует"}</div>
+        </td></tr>
+      </tbody></table></div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="er-cancel" type="button">Закрыть</button>
+        <button class="btn-primary" id="er-save" type="button"${added ? "" : " disabled"}>Сохранить</button>
+      </div>
+      <div class="note">Цена продажи вручную не заменяется: значение Коэф. 2 строки — часть коммерческого решения, как и Коэф. 1. Вознаграждение дизайнера — прирост стоимости строки от Коэф. 2, плановый расход.</div>
+    </div>`);
+  document.getElementById("er-cancel").addEventListener("click", closeAnyModal);
+  document.getElementById("er-save").addEventListener("click", () => {
+    const raw = document.getElementById("er-k2").value;
+    const next = raw === "" ? null : parseFloat(raw);
+    if ((w.k2 == null ? "" : w.k2) !== (next == null ? "" : next)) {
+      w.k2 = next;
+      logChange(p, "Финансы", `"${workName(w)}": Коэф. 2 строки — ${next == null ? "не задано" : next}`);
+    }
+    closeAnyModal();
+    render();
+  });
 }
 
 /* Сводный — вычисляемое представление (ТЗ "Финансы", Сводный: 14 показателей) */
 function rSvodny(p) {
-  if (svodProject !== p) {
-    svodProject = p;
-    const cliLen = fixList(p, "cli").length;
-    svodSel = { int: "work", cli: cliLen ? "f" + (cliLen - 1) : "work" }; // по умолчанию клиентский — последняя согласованная
-  }
+  if (svodProject !== p) { svodProject = p; svodSel = "auto"; }
   const t = finTotals(p);
   const added = c2added(p);
-  const selVer = (kind) => (svodSel[kind] === "work" ? null : (fixList(p, kind)[+svodSel[kind].slice(1)] || null));
-  // расчёт: выбранная версия (fix_calc) или рабочая редакция — источник закупочной стороны и прироста Коэф. 2
-  const selCalc = selVer("int");
-  const calcSrc = selCalc || { works: p.works || [], materials: p.materials || [], others: p.others || [], coef2: p.coef2 };
-  const calcAdded = !!(calcSrc.coef2 && calcSrc.coef2.added);
-  const ctt = calcTotals(calcGroups(calcSrc), calcAdded);
-  // продажная сторона: согласованная версия (цены сохранены в ней) или рабочая редакция (цены из коэффициентов)
-  const selCli = selVer("cli");
-  const cliRows = [];
-  if (selCli) {
-    ["works", "materials", "others"].forEach((k) => (selCli[k] || []).forEach((r) => cliRows.push(r)));
-  } else {
-    calcGroups(p).forEach((rows) => rows.forEach((r) => cliRows.push({ qty: r.qty, price: salePriceOf(r, added) })));
+  const list = estList(p);
+  const auto = svodSource(p);
+  let src = auto;
+  if (svodSel === "work") src = { kind: "work", note: "рабочая редакция — черновик" };
+  else if (svodSel.startsWith("e")) {
+    const v = list[+svodSel.slice(1)];
+    if (v) src = { kind: "est", v, note: `${v.label} ${v.id} · ${fmtDate(v.date)} · ${estStateLabel(v).toLowerCase()}` };
   }
-  const cliT = sumRows(cliRows, "price");
-  const verName = (kind, def) => {
-    const s = selVer(kind);
-    return s ? `${esc(s.short)} ${esc(s.version)} (${fmtDate(s.date)})` : def;
-  };
-  // сопоставимость: одинаковый состав выбранных расчёта и клиентской версии (ТЗ "Финансы", Сводный п.4)
-  const keyOf = (src) => [...(src.works || []).map((r) => "w" + (r.wid != null ? r.wid : r.id)), ...(src.materials || []).map((r) => "m" + r.id), ...(src.others || []).map((r) => "o" + r.id)].sort().join(",");
-  const cliCmpSrc = selCli || p;
-  const comparable = keyOf(calcSrc) === keyOf(cliCmpSrc);
-  const designer = calcAdded ? ctt.gain : null;
-  const lastCli = snap(p, "cli");
-  const lastCliSum = lastCli ? r2(["works", "materials", "others"].reduce((a, k) => a + (lastCli[k] || []).reduce((s, r) => s + (r.qty * r.price || 0), 0), 0)) : null;
-  const unpaidBudget = lastCli ? r2(lastCliSum - t.income) : null;
-  const verOpts = (kind) => `<option value="work"${svodSel[kind] === "work" ? " selected" : ""}>рабочая редакция</option>`
-    + fixList(p, kind).map((v, i) => `<option value="f${i}"${svodSel[kind] === "f" + i ? " selected" : ""}>${esc(v.short)} ${esc(v.version)} (${fmtDate(v.date)})</option>`).join("");
+  let sale; let buy; let gain; let unevBuy = 0; let unevSale = 0;
+  if (src.kind === "est") {
+    sale = estSaleOf(src.v);
+    buy = estSebOf(src.v);
+    gain = (src.v.coef2 && src.v.coef2.added) ? estGainOf(src.v) : null;
+    [ ...(src.v.works || []), ...(src.v.materials || []), ...(src.v.others || []) ].forEach((r) => {
+      if (r.range) return;
+      if (r.seb == null) unevBuy += 1;
+      if (r.cost == null) unevSale += 1;
+    });
+  } else if (src.kind === "kp") {
+    sale = src.sale;
+    buy = null;
+    gain = null;
+  } else {
+    const tt = calcTotals(calcGroups(p), added);
+    sale = tt.sale; buy = tt.buy.sum; gain = added ? tt.gain : null;
+    unevBuy = tt.buy.unev; unevSale = tt.sale.unev;
+  }
+  const lastEst = estLastAgreed(p);
+  // предъявлена более поздняя несогласованная редакция — цепочка по умолчанию остаётся на согласованной
+  const laterDraft = auto.kind === "est" && list.slice(list.indexOf(auto.v) + 1).some((x) => x.state !== "agreed");
   const state = [];
-  if (ctt.buy.unev || cliT.unev) state.push(`позиций без цены, коэффициента или количества: расчёт ${ctt.buy.unev}, продажная сторона ${cliT.unev}`);
-  if (calcAdded && !(calcSrc.coef2 && calcSrc.coef2.purpose)) state.push("назначение Коэф. 2 не задано — вознаграждение дизайнера не определено");
+  if (unevBuy || unevSale) state.push(`позиций без цены, коэффициента или количества: закупочная сторона ${unevBuy}, продажная ${unevSale}`);
+  if (added && !(p.coef2 && p.coef2.purpose)) state.push("назначение Коэф. 2 не задано — вознаграждение дизайнера не определено");
   if (t.unapprCnt) state.push(`записей табеля не утверждено: ${t.unapprCnt} (${t.hoursUnappr} ч)`);
   if (t.hoursNoRate) state.push(`труд без ставки: ${t.hoursNoRate} ч`);
   if (t.unconfCnt) state.push(`операций не подтверждено: ${t.unconfCnt} (${fmtM2(t.unconf)})`);
-  const row = (i, name, value, src) => `
-    <tr><td>${i}</td><td>${name}</td><td class="num"><b>${value}</b></td><td class="svod-src">${src}</td></tr>`;
-  const planDelta = comparable ? r2(cliT.sum - r2(ctt.buy.sum + (designer || 0))) : null;
+  const row = (i, name, value, srcNote) => `
+    <tr><td>${i}</td><td>${name}</td><td class="num"><b>${value}</b></td><td class="svod-src">${srcNote}</td></tr>`;
+  const opts = `<option value="auto"${svodSel === "auto" ? " selected" : ""}>цепочка по умолчанию — ${auto.kind === "est" ? "согласованная смета" : auto.kind === "kp" ? "согласованное КП (ориентировочно)" : "рабочая редакция (черновик)"}</option>
+    <option value="work"${svodSel === "work" ? " selected" : ""}>рабочая редакция (черновик)</option>
+    ${list.map((v, i) => `<option value="e${i}"${svodSel === "e" + i ? " selected" : ""}>${esc(v.label)} ${esc(v.id)} — ${esc(estStateLabel(v))} (${fmtDate(v.date)})</option>`).join("")}`;
   return `
     <div class="note fin-note">
-      Расчёт: <select class="flt-sel" id="svod-int">${verOpts("int")}</select>
-      · Бюджет клиента: <select class="flt-sel" id="svod-cli">${verOpts("cli")}</select>
+      Редакция: <select class="flt-sel" id="svod-est">${opts}</select>
       · Период факта: весь проект · Цены — без НДС
     </div>
+    ${laterDraft ? `<div class="note fin-note">Предъявлена более поздняя несогласованная редакция — цепочка по умолчанию остаётся на согласованной, пока согласование не зарегистрировано.</div>` : ""}
     <div class="tbl-wrap"><table class="tbl">
       <thead><tr><th>#</th><th>Показатель</th><th class="num">Значение</th><th>Источник</th></tr></thead>
       <tbody>
-        ${row(1, "Продажная оценка", fmtM2(cliT.sum), `итог выбранной версии Бюджета клиента по стоимости строк трёх таблиц · ${verName("cli", "рабочая редакция; по умолчанию — последняя согласованная")}${cliT.unev ? ` · не оценено: ${cliT.unev} поз. — полнота оценки неполная` : ""}`)}
-        ${row(2, "Закупочная оценка", fmtM2(ctt.buy.sum), `итог выбранной версии расчёта по себестоимости строк трёх таблиц · ${verName("int", "рабочая редакция")}${ctt.buy.unev ? ` · не оценено: ${ctt.buy.unev} поз.` : ""}`)}
+        ${row(1, "Продажная оценка", fmtSale(sale), `${src.note}${sale.range ? " · диапазон — предварительная оценка материалов" : ""}${unevSale ? ` · не оценено: ${unevSale} поз.` : ""}`)}
+        ${row(2, "Закупочная оценка", buy == null ? `<span class="muted">—</span>` : fmtM2(buy), buy == null ? "согласованное КП закупочной стороны не содержит — показатель не считается" : `${src.note}${unevBuy ? ` · не оценено: ${unevBuy} поз.` : ""}`)}
         ${row(3, "Вознаграждение дизайнера",
-          designer == null ? `<span class="muted">—</span>` : fmtM2(designer),
-          designer == null
-            ? "проект без добавленного Коэф. 2 — расход не возникает"
-            : `прирост от Коэф. 2 по строкам трёх таблиц расчёта (${verName("int", "рабочая редакция")}) · плановый расход, не денежный поток`)}
-        ${comparable
-          ? row(4, "Плановая разница продажи и затрат", fmtM2(planDelta), "строка 1 − (строка 2 + строка 3) · одинаковый состав, объём и налоговая база · ожидаемая величина, а не фактическая прибыль")
-          : row(4, "Плановая разница продажи и затрат", `<span class="muted">—</span>`, "выбранные версии несопоставимы: разные составы позиций — разница не показывается")}
+          gain == null ? `<span class="muted">—</span>` : fmtM2(gain),
+          gain == null ? "Коэф. 2 не добавлен или источник не содержит данных — расход не возникает или не считается" : `прирост от Коэф. 2 по строкам СМР и отделочных работ · ${src.note} · плановый расход, не денежный поток`)}
+        ${buy == null
+          ? row(4, "Плановая разница продажи и затрат", `<span class="muted">—</span>`, "закупочная оценка недоступна — разница не показывается")
+          : row(4, "Плановая разница продажи и затрат", fmtM2(r2(sale.lo - r2(buy + (gain || 0)))), "строка 1 − (строка 2 + строка 3) · одна редакция — сопоставимый состав · ожидаемая величина, а не фактическая прибыль")}
         ${row(5, "Фактические часы", t.hoursAppr + " ч", `утверждённые записи табелей${t.unapprCnt ? ` · не утверждено: ${t.unapprCnt} зап. (${t.hoursUnappr} ч)` : ""}`)}
         ${row(6, "Стоимость труда по табелям", fmtM2(t.costAppr), `утверждённые часы × ставка даты работы${t.hoursNoRate ? ` · без ставки: ${t.hoursNoRate} ч` : ""}`)}
         ${row(7, "Поступления от клиента", fmtM2(t.income), "подтверждённые поступления за период с учётом возвратов клиенту")}
@@ -1626,152 +1803,140 @@ function rSvodny(p) {
         ${row(10, "Не оплачено по счетам", fmtM2(t.unpaidInvoices), "выставленные и отправленные счета − распределённые по ним подтверждённые поступления")}
         ${row(11, "Аванс клиента", fmtM2(t.advance), "подтверждённые поступления, не распределённые по счетам, за вычетом возвратов клиенту")}
         ${row(12, "К оплате сейчас", fmtM2(t.toPayNow), "строка 10 − строка 11, не меньше нуля; излишек аванса остаётся в строке 11")}
-        ${row(13, "Не оплачено по бюджету клиента",
-          unpaidBudget == null ? `<span class="muted">—</span>` : fmtM2(unpaidBudget),
-          lastCli
-            ? `последняя согласованная версия (${esc(lastCli.short)} ${esc(lastCli.version)}, ${fmtDate(lastCli.date)}) − строка 7 · неоплаченная часть договорённостей, не наступивший долг`
-            : "нет согласованной версии Бюджета клиента — показатель не считается")}
+        ${row(13, "Остаток по смете",
+          lastEst ? fmtM2(r2(estSaleOf(lastEst).lo - t.income)) : `<span class="muted">—</span>`,
+          lastEst
+            ? `согласованная смета ${lastEst.id} (${fmtSale(estSaleOf(lastEst))}) − строка 7 · неоплаченная часть договорённостей, не наступивший долг`
+            : "нет согласованной сметы — оценка по согласованному КП ориентировочная и долгов не создаёт")}
         ${row(14, "Состояние данных", state.length ? state.join("; ") : "неполноты не выявлены", "источники неполноты показателей")}
       </tbody>
     </table></div>
-    <div class="note">Сводный — вычисляемое представление: собственных редактируемых итогов нет, каждый показатель раскрывается до источника. Вознаграждение дизайнера считается равным всему приросту Коэф. 2 (предлагаемый вариант, [?] до подтверждения) — до ответа итоговая экономика помечается неполной. Показатели расчётов с клиентом ("Не оплачено по счетам", "К оплате сейчас", "Аванс клиента") денежными потоками не являются: первые два — требования по выставленным счетам, третий — полученные деньги, не закрытые счетами. Стоимость труда и денежные расходы показываются отдельно: полной фактической себестоимости (материалы, принятые работы подрядчиков) расчёт пока не даёт.</div>`;
+    <div class="note">Сводный — вычисляемое представление: собственных редактируемых итогов нет, каждый показатель раскрывается до источника. Цепочка по умолчанию: последняя согласованная смета; при её отсутствии — согласованное КП (ориентировочно, без закупочной стороны); при отсутствии и его — рабочая редакция (черновик). Показатели расчётов с клиентом ("Не оплачено по счетам", "К оплате сейчас", "Аванс клиента") денежными потоками не являются: первые два — требования по выставленным счетам, третий — полученные деньги, не закрытые счетами. Стоимость труда и денежные расходы показываются отдельно: полной фактической себестоимости (материалы, принятые работы подрядчиков) расчёт пока не даёт.</div>`;
 }
 
-/* ТЗ "Финансы", версии: фиксация предварительного расчёта действием "Зафиксировать" */
-function fixInternal(p) {
-  const fl = fixList(p, "int");
-  const v = {
-    version: "v" + (fl.length + 1),
-    label: "Внутренний бюджет",
-    short: "Внутренний",
+/* цепочка по умолчанию для Сводного (ТЗ "Финансы", Сводный) */
+function svodSource(p) {
+  const est = estLastAgreed(p);
+  if (est) return { kind: "est", v: est, note: `согласованная смета ${est.id} · ${fmtDate(est.date)}` };
+  const kp = [...(p.docs || [])].reverse().find((d) => d.type === "КП" && docHasEvent(d, "agreed") && d.kp);
+  if (kp) {
+    const rows = kp.kp.rows || [];
+    const exact = r2(rows.filter((r) => !r.range).reduce((a, r) => a + (kpRowCost(r) || 0), 0));
+    const spread = r2(rows.filter((r) => r.range).reduce((a, r) => a + ((r.range.hi || 0) - (r.range.lo || 0)), 0));
+    return { kind: "kp", d: kp, sale: { lo: exact, hi: r2(exact + spread), range: spread > 0 }, note: `согласованное КП ${kp.version || ""} · ${fmtDate(kp.date)} · ориентировочно` };
+  }
+  return { kind: "work", note: "рабочая редакция — черновик" };
+}
+
+/* снимок рабочей редакции плана (ТЗ "График" 5): входит в зафиксированный набор сметы и КП */
+function snapshotPlan(p) {
+  const src = schedRows(p, p.plan_start);
+  if (!src.rows.length) return null;
+  const rows = src.rows.map((r) => ({
+    wid: r.w.id, stage: r.w.stage, room: r.w.room, element: r.w.element || null, work: r.w.work, unit: r.w.unit, qty: r.w.qty,
+    norm: r.src === "norm" ? normOf(r.w).key : (r.w.norm || null),
+    dur: r.dur, start: r.start ? dISO(r.start) : null, finish: r.finish ? dISO(r.finish) : null,
+  }));
+  return {
+    version: "v" + ((p.fix_plan || []).length + 1),
+    label: "Календарный план",
+    short: "План",
     date: todayIso(),
-    vat: 0.19,
-    coef2: { ...(p.coef2 || { added: false }) },
-    works: (p.works || []).map((w) => ({ wid: w.id, stage: w.stage, room: w.room, work: w.work, unit: w.unit, qty: w.qty, price_buy: w.price_buy, k1: w.k1, k2: w.k2 })),
-    materials: (p.materials || []).map((m) => ({ ...m })),
-    others: (p.others || []).map((o) => ({ ...o })),
+    norms: DATA.norms.version,
+    start: p.plan_start || null,
+    premise: PLAN_PREMISE,
+    calendar: PLAN_CALENDAR,
+    rows,
   };
-  p.fix_calc = [...fl, v];
-  budgetVer = "f" + (p.fix_calc.length - 1);
-  // зафиксированная версия — внутренний документ с выгрузкой (ТЗ "Документы", ТЗ "Финансы", версии)
-  p.docs = [...(p.docs || []), {
-    name: "Внутренний бюджет " + v.version + ".pdf",
-    type: "Внутренний бюджет",
-    dir: "int",
-    party: p.pm ? p.pm.name : "",
+}
+
+/* ТЗ "Финансы" 2.6: фиксация — сохранённая редакция сметы и документ; выпуск КП фиксирует набор
+   (редакция сметы + снимок плана + КП) одним действием */
+function fixEst(p, opts) {
+  const o = opts || {};
+  const added = c2added(p);
+  const works = (p.works || []).map((w) => ({
+    wid: w.id, stage: w.stage, room: w.room, work: w.work, unit: w.unit, qty: w.qty, comment: w.comment || null,
+    price_buy: w.price_buy, k1: w.k1, k2: rowK2(w, added, true),
+    seb: rowSebOf(w), price: salePriceOf(w, added, true), cost: rowCostOf(w, added, true),
+  }));
+  const materials = (p.materials || []).map((m) => (m.range
+    ? { id: m.id, name: m.name, unit: m.unit, qty: m.qty, comment: m.comment || null, range: { lo: m.range.lo, hi: m.range.hi } }
+    : { id: m.id, name: m.name, unit: m.unit, qty: m.qty, comment: m.comment || null, price_buy: m.price_buy, k1: m.k1, seb: rowSebOf(m), price: salePriceOf(m, added, false), cost: rowCostOf(m, added, false) }));
+  const others = (p.others || []).map((x) => ({ id: x.id, name: x.name, unit: x.unit, qty: x.qty, comment: x.comment || null, price_buy: x.price_buy, k1: x.k1, seb: rowSebOf(x), price: salePriceOf(x, added, false), cost: rowCostOf(x, added, false) }));
+  const tt = calcTotals(calcGroups(p), added);
+  const v = {
+    id: "v" + (estList(p).length + 1),
+    label: o.kp ? "Редакция для КП" : "Зафиксированная редакция",
+    date: todayIso(),
+    state: "fixed",
+    coef2: { ...(p.coef2 || { added: false }) },
+    works, materials, others,
+    totals: { seb: tt.buy.sum, sale: tt.sale.lo },
+  };
+  p.est = [...estList(p), v];
+  const plan = snapshotPlan(p);
+  if (plan) p.fix_plan = [...(p.fix_plan || []), plan];
+  const doc = {
+    name: (o.kp ? "КП " : "Смета ") + v.id + " — " + String(p.name || "").replace(/^\d{4}\.\s*/, ""),
+    type: o.kp ? "КП" : "Смета",
+    party: p.client ? p.client.name : "",
     date: v.date,
-    date_doc: v.date,
-    status: "approved",
-    version: v.version,
-    budget: { kind: "int", label: v.label, coef2: v.coef2, works: v.works, materials: v.materials, others: v.others },
-  }];
-  logChange(p, "Финансы", `расчёт зафиксирован: ${v.version} (${fmtDate(v.date)}) — состав, количества, закупочные цены, коэффициенты и назначение Коэф. 2; версия добавлена в "Документы" (внутренний)`);
-  render();
+    version: v.id,
+    events: [{ kind: "fixed", date: v.date, who: "Демо-пользователь", note: o.kp ? "КП сформировано — набор зафиксирован" : "редакция зафиксирована" }],
+    est: v.id,
+    plan: plan ? plan.version : null,
+  };
+  if (o.kp) doc.kp = { rows: o.kpRows || [], extra: !!o.extra };
+  p.docs = [...(p.docs || []), doc];
+  estSel = "e" + (p.est.length - 1);
+  logChange(p, "Финансы", `${o.kp ? "КП сформировано" : "редакция сметы зафиксирована"}: ${v.id} — стоимость ${fmtSale(tt.sale)}; набор включает снимок плана${plan ? ` (${plan.version})` : ", план пуст"}; документ добавлен в "Документы"`);
+  return doc;
 }
 
-/* ТЗ "Финансы", версии: согласование Бюджета клиента регистрируется событием */
-function openAgree(p) {
-  mountModal(`
-    <div class="modal">
-      <div class="modal-title">Согласование Бюджета клиента</div>
-      <div class="form-skel">
-        <label>Кто согласовал</label>
-        <input id="ag-who" type="text" autocomplete="off" value="${esc(p.client ? p.client.name : "")}">
-        <label>Когда</label>
-        <input id="ag-when" type="date" value="${todayIso()}">
-        <label>Где подтверждение</label>
-        <input id="ag-where" type="text" autocomplete="off" placeholder="электронная почта, встреча, мессенджер">
-      </div>
-      <div class="modal-actions">
-        <button class="btn-ghost" id="ag-cancel" type="button">Отмена</button>
-        <button class="btn-primary" id="ag-save" type="button">Зарегистрировать согласование</button>
-      </div>
-      <div class="note">Зафиксируется новая версия Бюджета клиента: текущий состав, количества и продажные цены предварительного расчёта (закупочная сторона и коэффициенты в клиентскую версию не попадают). Предыдущие версии не изменяются; после согласования изменения копятся в рабочей редакции с признаком "изменено относительно согласованного".</div>
-    </div>`);
-  document.getElementById("ag-cancel").addEventListener("click", closeAnyModal);
-  document.getElementById("ag-save").addEventListener("click", () => {
-    const whoEl = document.getElementById("ag-who");
-    const who = whoEl.value.trim();
-    if (!who) { whoEl.classList.add("input-err"); whoEl.focus(); return; }
-    const when = document.getElementById("ag-when").value || todayIso();
-    const where = document.getElementById("ag-where").value.trim();
-    const fl = fixList(p, "cli");
-    const added = c2added(p);
-    // продажная сторона: цены сохраняются в самой версии; закупочная сторона и коэффициенты в клиентскую версию не попадают
-    const v = {
-      version: "v" + (fl.length + 1),
-      label: "Согласованный Бюджет клиента",
-      short: "Согласованный",
-      date: when,
-      approved_by: who + (where ? ", " + where : ""),
-      vat: 0.19,
-      works: (p.works || []).map((w) => ({ wid: w.id, stage: w.stage, room: w.room, work: w.work, unit: w.unit, qty: w.qty, price: salePriceOf(w, added), cost: rowCostOf(w, added) })),
-      materials: (p.materials || []).map((m) => ({ id: m.id, name: m.name, unit: m.unit, qty: m.qty, price: salePriceOf(m, added), cost: rowCostOf(m, added), comment: m.comment || "Предварительная оценка" })),
-      others: (p.others || []).map((o) => ({ id: o.id, name: o.name, unit: o.unit, qty: o.qty, price: salePriceOf(o, added), cost: rowCostOf(o, added), comment: o.comment || "" })),
-    };
-    p.fix_cli = [...fl, v];
-    budgetVer = "f" + (p.fix_cli.length - 1);
-    // согласованная версия — исходящий документ типа "Бюджет клиента" (ТЗ "Документы");
-    // согласование ≠ отправка: пустая дата отправки, статус "Черновик"
-    p.docs = [...(p.docs || []), {
-      name: "Бюджет клиента " + v.version + ".pdf",
-      type: "Бюджет клиента",
-      dir: "out",
-      party: p.client ? p.client.name : "",
-      date: null,
-      date_doc: v.date,
-      status: "draft",
-      version: v.version,
-      budget: { kind: "cli", label: v.label, approved_by: v.approved_by, works: v.works, materials: v.materials, others: v.others },
-    }];
-    logChange(p, "Финансы", `Согласование Бюджета клиента зарегистрировано: ${v.version} — ${who}, ${fmtDate(when)}${where ? " (" + where + ")" : ""}; версия добавлена в "Документы" (исходящий, черновик)`);
-    closeAnyModal();
-    render();
-  });
-  document.getElementById("ag-who").focus();
-}
-
-/* ТЗ "Финансы", КП: "Сформировать КП" — отбор позиций по продажным ценам, объединение совместимых строк */
+/* ТЗ "Финансы" 2.7: "Сформировать КП" — отбор позиций по продажным ценам, объединение совместимых строк */
 function openKpForm(p, mode) {
   const m = mode || "all";
   const added = c2added(p);
   const delta = clientDelta(p);
-  const works = (p.works || []).filter((w) => salePriceOf(w, added) != null);
-  const mats = (p.materials || []).filter((x) => salePriceOf(x, added) != null);
-  const oths = (p.others || []).filter((x) => salePriceOf(x, added) != null);
-  // дополнительный состав: позиции вне согласованной версии и изменившиеся относительно неё (ТЗ "Финансы", КП)
-  const extraIds = delta ? [...delta.flags.entries()].filter(([, v]) => v === "added" || v === "changed").map(([k]) => k) : [];
+  const works = (p.works || []).filter((w) => salePriceOf(w, added, true) != null);
+  const mats = (p.materials || []).filter((x) => x.range || salePriceOf(x, added, false) != null);
+  const oths = (p.others || []).filter((x) => salePriceOf(x, added, false) != null);
+  // дополнительный состав: позиции вне согласованной редакции и изменившиеся относительно неё (ТЗ "Финансы" 2.7)
+  const extraIds = delta ? [...delta.flags.entries()].filter(([, fl]) => fl === "added" || fl === "changed").map(([k]) => k) : [];
   const extraMode = m === "extra";
   const defW = (w) => (extraMode ? extraIds.includes(w.id) : true);
-  let mergeOn = true; // объединение совместимых строк — по умолчанию включено (правила 1–2)
+  let mergeOn = true; // объединение совместимых строк — по умолчанию включено
 
-  // объединяются работы с одинаковой работой, единицей и ценой продажи; количество и стоимость — суммы строк
+  // объединяются работы с одинаковой работой, единицей и рассчитанной ценой; количество — сумма строк
   const mergePreview = (selWorks) => {
     const map = new Map();
     selWorks.forEach((w) => {
-      const price = salePriceOf(w, added);
+      const price = salePriceOf(w, added, true);
       const key = w.work + "||" + w.unit + "||" + price;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(w);
     });
     const rows = [];
     let mergedCnt = 0;
-    let discrepancy = 0;
     map.forEach((list, key) => {
       const [work, unit, priceStr] = key.split("||");
       const price = parseFloat(priceStr);
       if (!mergeOn || list.length === 1) {
-        list.forEach((w) => rows.push({ kind: "work", wid: w.id, room: w.room, work: w.work, unit: w.unit, qty: w.qty, price, cost: rowCostOf(w, added) }));
+        list.forEach((w) => rows.push({ kind: "work", wid: w.id, room: w.room, work: w.work, unit: w.unit, qty: w.qty, price }));
         return;
       }
       mergedCnt += 1;
-      const qty = r2(list.reduce((a, w) => a + (w.qty || 0), 0));
-      const cost = r2(list.reduce((a, w) => a + (rowCostOf(w, added) || 0), 0));
-      if (r2(qty * price) !== cost) discrepancy = r2(discrepancy + (r2(qty * price) - cost));
-      rows.push({ kind: "work", merged: true, wids: list.map((w) => w.id), room: "—", work, unit, qty, price, cost });
+      rows.push({ kind: "work", merged: true, wids: list.map((w) => w.id), room: "—", work, unit, qty: r2(list.reduce((a, w) => a + (w.qty || 0), 0)), price });
     });
-    return { rows, mergedCnt, discrepancy };
+    return { rows, mergedCnt };
   };
+
+  const matRow = (x) => x.range
+    ? { kind: "material", id: x.id, name: x.name, unit: x.unit, qty: x.qty, range: { lo: x.range.lo, hi: x.range.hi } }
+    : { kind: "material", id: x.id, name: x.name, unit: x.unit, qty: x.qty, price: salePriceOf(x, added, false) };
+  const matPriceLabel = (x) => (x.range ? `от ${fmtM2(x.range.lo)} до ${fmtM2(x.range.hi)}` : fmtM2(salePriceOf(x, added, false)));
+  const matCostLabel = (x) => (x.range ? `<span class="muted">диапазон</span>` : fmtM2(rowCostOf(x, added, false)));
 
   const wRowsHtml = works.map((w) => `
       <label class="chk-row">
@@ -1779,8 +1944,8 @@ function openKpForm(p, mode) {
         <span class="chk-name">${esc(workName(w))}</span>
         <span class="muted">${esc(w.unit)}</span>
         <span class="num">${fmtQty(w.qty)}</span>
-        <span class="num">${fmtM2(salePriceOf(w, added))}</span>
-        <span class="num chk-cost"><b>${fmtM2(rowCostOf(w, added))}</b></span>
+        <span class="num">${fmtM2(salePriceOf(w, added, true))}</span>
+        <span class="num chk-cost"><b>${fmtM2(rowCostOf(w, added, true))}</b></span>
       </label>`).join("");
   const xRow = (x, kind) => `
       <label class="chk-row">
@@ -1788,8 +1953,8 @@ function openKpForm(p, mode) {
         <span class="chk-name">${esc(x.name)}${kind === "mat" ? ` <span class="delta-chip delta-muted">предварительная оценка</span>` : ""}</span>
         <span class="muted">${esc(x.unit)}</span>
         <span class="num">${fmtQty(x.qty)}</span>
-        <span class="num">${fmtM2(salePriceOf(x, added))}</span>
-        <span class="num chk-cost"><b>${fmtM2(rowCostOf(x, added))}</b></span>
+        <span class="num">${matPriceLabel(kind === "mat" ? x : x)}</span>
+        <span class="num chk-cost"><b>${matCostLabel(kind === "mat" ? x : x)}</b></span>
       </label>`;
   const hasAny = works.length || mats.length || oths.length;
 
@@ -1803,14 +1968,14 @@ function openKpForm(p, mode) {
       ${hasAny
         ? `<div class="chk-list">${wRowsHtml}${mats.map((x) => xRow(x, "mat")).join("")}${oths.map((x) => xRow(x, "oth")).join("")}</div>
            <div class="kp-total" id="kp-total"></div>`
-        : `<div class="empty">Оценённых позиций в рабочей редакции нет — задайте закупочные цены и коэффициенты в "Предварительном расчёте"</div>`}
+        : `<div class="empty">Оценённых позиций в рабочей редакции нет — задайте закупочные цены и коэффициенты в "Сметах"</div>`}
       <div class="modal-actions">
         <button class="btn-ghost" id="kp-merge" type="button">Объединение совместимых строк: включено</button>
         <span class="spacer" style="flex:1"></span>
         <button class="btn-ghost" id="kp-cancel" type="button">Отмена</button>
         <button class="btn-primary" id="kp-create" type="button"${hasAny ? "" : " disabled"}>Создать КП</button>
       </div>
-      <div class="note">КП формируется после предварительного расчёта, по продажным ценам. Объединяются совместимые работы с одинаковой единицей и одинаковой ценой продажи; при разных ценах строки остаются раздельными, усреднённая цена не появляется. Количество объединённой строки — сумма количеств, стоимость — сумма стоимостей; строка КП хранит ссылки на исходные позиции, расшифровка объединений клиенту автоматически не передаётся. Внутренние цены, коэффициенты и вознаграждение дизайнера в КП не попадают.</div>
+      <div class="note">Выпуск КП фиксирует набор: редакция сметы, снимок плана и документ КП создаются одним действием. КП формируется по продажным ценам рабочей редакции; объединяются совместимые работы с одинаковой единицей и одинаковой рассчитанной ценой — при разных ценах строки остаются раздельными, усреднённая цена не появляется. Количество объединённой строки — сумма количеств; строка хранит ссылки на исходные позиции, расшифровка объединений клиенту автоматически не передаётся. Диапазонные материалы попадают в КП границами. Внутренние цены, коэффициенты и вознаграждение дизайнера в КП не попадают.</div>
     </div>`);
 
   const selWorks = () => [...document.querySelectorAll(".chk-list input[data-wid]:checked")]
@@ -1825,13 +1990,13 @@ function openKpForm(p, mode) {
     const sm = selX("mat");
     const so = selX("oth");
     const prev = mergePreview(sw);
-    const costSum = (rows, f) => r2(rows.reduce((a, r) => a + (f(r) || 0), 0));
-    const total = r2(costSum(prev.rows, (r) => r.cost) + costSum(sm, (x) => rowCostOf(x, added)) + costSum(so, (x) => rowCostOf(x, added)));
+    const rows = [...prev.rows, ...sm.map(matRow), ...so.map((x) => ({ kind: "other", id: x.id, name: x.name, unit: x.unit, qty: x.qty, price: salePriceOf(x, added, false) }))];
+    const exact = r2(rows.filter((r) => !r.range).reduce((a, r) => a + (kpRowCost(r) || 0), 0));
+    const ranges = rows.filter((r) => r.range);
     const el = document.getElementById("kp-total");
     if (el) el.innerHTML = `
       <div>Выбрано: работ ${sw.length}, материалов ${sm.length}, прочих ${so.length}${prev.mergedCnt ? ` · объединённых строк: ${prev.mergedCnt}` : ""}</div>
-      <div>Итого (без НДС): <b>${fmtM2(total)}</b> · НДС 19 %: <b>${fmtM2(vatOf(total))}</b> · Итого с НДС: <b>${fmtM2(r2(total + vatOf(total)))}</b></div>
-      ${mergeOn && prev.discrepancy ? `<div><span class="delta-chip delta-check">расхождение округления</span> сумма строк и произведение количества на цену различаются на ${fmtM2(Math.abs(prev.discrepancy))} — показывается до выпуска; безопасный вариант — выключить объединение</div>` : ""}`;
+      <div>Оценено точно: <b>${fmtM2(exact)}</b> · НДС 19 %: <b>${fmtM2(vatOf(exact))}</b> · Итого с НДС (без диапазона): <b>${fmtM2(r2(exact + vatOf(exact)))}</b>${ranges.length ? ` · материалы предварительно, границами: ${ranges.map((r) => `${fmtM2(r.range.lo)}–${fmtM2(r.range.hi)}`).join("; ")}` : ""}</div>`;
   };
   document.querySelectorAll(".chk-list input").forEach((c) => c.addEventListener("change", recount));
   document.getElementById("kp-cancel").addEventListener("click", closeAnyModal);
@@ -1850,186 +2015,15 @@ function openKpForm(p, mode) {
     const prev = mergePreview(sw);
     const rows = [
       ...prev.rows,
-      ...sm.map((x) => ({ kind: "material", id: x.id, name: x.name, unit: x.unit, qty: x.qty, price: salePriceOf(x, added), cost: rowCostOf(x, added), comment: "Предварительная оценка" })),
-      ...so.map((x) => ({ kind: "other", id: x.id, name: x.name, unit: x.unit, qty: x.qty, price: salePriceOf(x, added), cost: rowCostOf(x, added), comment: x.comment || "" })),
+      ...sm.map(matRow),
+      ...so.map((x) => ({ kind: "other", id: x.id, name: x.name, unit: x.unit, qty: x.qty, price: salePriceOf(x, added, false) })),
     ];
-    const version = "v" + ((p.docs || []).filter((d) => d.type === "КП").length + 1);
-    const total = r2(rows.reduce((a, r) => a + (r.cost || 0), 0));
-    const doc = {
-      name: "КП " + version + " — " + p.name,
-      type: "КП",
-      dir: "out",
-      party: p.client ? p.client.name : "",
-      date_doc: todayIso(),
-      date: null,
-      status: "draft",
-      version,
-      kp: { rows, extra: extraMode, merge: mergeOn },
-    };
-    p.docs = [...(p.docs || []), doc];
-    logChange(p, "Финансы", `сформировано КП ${version}${extraMode ? " (дополнительный состав)" : ""}: ${rows.length} строк, ${fmtM2(total)} без НДС${mergeOn && prev.discrepancy ? `; расхождение округления ${fmtM2(Math.abs(prev.discrepancy))} показано до выпуска` : ""}`);
+    const doc = fixEst(p, { kp: true, kpRows: rows, extra: extraMode });
     closeAnyModal();
     openDocCard(p, doc);
   });
   recount();
 }
-
-/* ТЗ "Финансы", бюджеты: стороны одного расчёта; версии — переключателями */
-function fixedVersion(p, kind) {
-  const fl = fixList(p, kind);
-  const fixedIdx = budgetVer.startsWith("f") ? parseInt(budgetVer.slice(1), 10) : -1;
-  return fixedIdx >= 0 && fixedIdx < fl.length ? fl[fixedIdx] : null;
-}
-function budgetChips(p, kind) {
-  const fl = fixList(p, kind);
-  const s = fixedVersion(p, kind);
-  return fl.length ? `
-    <div class="subchips">
-      <button class="fchip${s ? "" : " active"}" data-bver="work" type="button">Рабочая редакция</button>
-      ${fl.map((v, i) => `<button class="fchip${v === s ? " active" : ""}" data-bver="f${i}" type="button">${esc(v.short)} ${esc(v.version)} (${fmtDate(v.date)})</button>`).join("")}
-    </div>` : `
-    <div class="subchips"><span class="fchip active">Рабочая редакция</span></div>`;
-}
-
-/* Внутренний бюджет — закупочная сторона расчёта; правки только в "Предварительном расчёте" */
-function rBudgetInt(p) {
-  const s = fixedVersion(p, "int");
-  const working = !s;
-  const src = s || { works: p.works || [], materials: p.materials || [], others: p.others || [], coef2: p.coef2 };
-  const added = !!(src.coef2 && src.coef2.added);
-  const wrows = (src.works || []).map((r, i) => `
-    <tr>
-      <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
-      <td class="num">${r.price_buy == null ? `<span class="muted">—</span>` : fmtM2(r.price_buy)}</td>
-      <td class="num">${rowSebOf(r) == null ? `<span class="muted">—</span>` : fmtM2(rowSebOf(r))}</td>
-    </tr>`).join("");
-  const xrows = (list, i0) => list.map((r, i) => `
-    <tr>
-      <td>${i0 + i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
-      <td class="num">${r.price_buy == null ? `<span class="muted">—</span>` : fmtM2(r.price_buy)}</td>
-      <td class="num">${rowSebOf(r) == null ? `<span class="muted">—</span>` : fmtM2(rowSebOf(r))}</td>
-    </tr>`).join("");
-  const tt = calcTotals(calcGroups(src), added);
-  const gain = added ? tt.gain : null;
-  return budgetChips(p, "int")
-    + (working
-      ? `<div class="budget-actions"><button class="btn-ghost" id="btn-fix-int" type="button">Зафиксировать</button></div>`
-      : `<div class="fix-cap"><b>${esc(s.label)} · ${esc(s.version)}</b> — зафиксирован ${fmtDate(s.date)}; версия расчёта неизменяема</div>`)
-    + `
-    <div class="note fin-note">Закупочная сторона предварительного расчёта: себестоимость строк трёх таблиц и отдельно плановый расход на дизайнера. Повторного ввода цен нет — цены и коэффициенты меняются в "Предварительном расчёте"; действие "Зафиксировать" сохраняет состав, количества, закупочные цены, коэффициенты и назначение Коэф. 2.</div>
-    <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th></tr></thead>
-      <tbody>${wrows}</tbody>
-    </table></div>
-    <div class="sect-title" style="margin-top:14px">Материалы</div>
-    <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Материал</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th></tr></thead>
-      <tbody>${xrows(src.materials || [], 0) || `<tr><td colspan="6" class="muted">Строк нет</td></tr>`}</tbody>
-    </table></div>
-    <div class="sect-title" style="margin-top:14px">Проектные, сопутствующие и работы по повременной оценке</div>
-    <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Вн. цена за ед., €</th><th class="num">Себестоимость, €</th></tr></thead>
-      <tbody>${xrows(src.others || [], 0) || `<tr><td colspan="6" class="muted">Строк нет</td></tr>`}</tbody>
-    </table></div>
-    <div class="budget-summary">
-      <div>Закупочная сторона: <b>${fmtM2(tt.buy.sum)}</b> (${tt.buy.cnt} поз. оценено)${tt.buy.unev ? ` · не оценено: ${tt.buy.unev} — пустая цена, коэффициент или количество означают неполный расчёт` : ""}</div>
-      ${added
-        ? `<div>Вознаграждение дизайнера (${esc(src.coef2.purpose || "Коэф. 2")}): <b>${fmtM2(gain)}</b> — плановый расход; в цену клиенту второй раз не добавляется</div>
-           <div>Общий объём плановых затрат: <b>${fmtM2(r2(tt.buy.sum + gain))}</b></div>`
-        : `<div>Коэф. 2 не добавлен — вознаграждение дизайнера не возникает; общий объём плановых затрат равен закупочной стороне</div>`}
-    </div>`;
-}
-
-/* Бюджет клиента — продажная сторона расчёта; цены из коэффициентов, вручную не заменяются */
-function rBudgetCli(p) {
-  const s = fixedVersion(p, "cli");
-  const working = !s;
-  const added = c2added(p);
-  const delta = working ? clientDelta(p) : null;
-  let wrows = "";
-  let mrows = "";
-  let orows = "";
-  let tt;
-  if (working) {
-    wrows = (p.works || []).map((w, i) => {
-      const flag = delta && delta.flags.get(w.id);
-      const dchip = flag ? `<span class="delta-chip delta-${flag}">${flag === "added" ? "добавлено" : "изменено"}</span>` : "";
-      const checkChip = w.price_check ? `<span class="delta-chip delta-check">требует проверки цены</span>` : "";
-      return `<tr>
-        <td>${i + 1}</td><td>${stageCell(w.stage)}</td><td>${esc(w.room)}</td><td>${esc(w.work)}${dchip}${checkChip}</td><td>${esc(w.unit)}</td><td class="num">${fmtQty(w.qty)}</td>
-        <td class="num">${salePriceOf(w, added) == null ? `<span class="muted">—</span>` : fmtM2(salePriceOf(w, added))}</td>
-        <td class="num">${rowCostOf(w, added) == null ? `<span class="muted">—</span>` : fmtM2(rowCostOf(w, added))}</td>
-      </tr>`;
-    }).join("");
-    mrows = (p.materials || []).map((m, i) => `
-      <tr>
-        <td>${i + 1}</td><td>${esc(m.name)} <span class="delta-chip delta-muted">предварительная оценка</span></td><td>${esc(m.unit)}</td><td class="num">${fmtQty(m.qty)}</td>
-        <td class="num">${salePriceOf(m, added) == null ? `<span class="muted">—</span>` : fmtM2(salePriceOf(m, added))}</td>
-        <td class="num">${rowCostOf(m, added) == null ? `<span class="muted">—</span>` : fmtM2(rowCostOf(m, added))}</td>
-      </tr>`).join("");
-    orows = (p.others || []).map((o, i) => `
-      <tr>
-        <td>${i + 1}</td><td>${esc(o.name)}</td><td>${esc(o.unit)}</td><td class="num">${fmtQty(o.qty)}</td>
-        <td class="num">${salePriceOf(o, added) == null ? `<span class="muted">—</span>` : fmtM2(salePriceOf(o, added))}</td>
-        <td class="num">${rowCostOf(o, added) == null ? `<span class="muted">—</span>` : fmtM2(rowCostOf(o, added))}</td>
-      </tr>`).join("");
-    tt = calcTotals(calcGroups(p), added).sale;
-  } else {
-    wrows = (s.works || []).map((r, i) => `
-      <tr>
-        <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
-        <td class="num">${r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price)}</td>
-        <td class="num">${r.cost != null ? fmtM2(r.cost) : (workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price)))}</td>
-      </tr>`).join("");
-    mrows = (s.materials || []).map((r, i) => `
-      <tr>
-        <td>${i + 1}</td><td>${esc(r.name)} <span class="delta-chip delta-muted">предварительная оценка</span></td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
-        <td class="num">${r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price)}</td>
-        <td class="num">${r.cost != null ? fmtM2(r.cost) : (workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price)))}</td>
-      </tr>`).join("");
-    orows = (s.others || []).map((r, i) => `
-      <tr>
-        <td>${i + 1}</td><td>${esc(r.name)}</td><td>${esc(r.unit)}</td><td class="num">${fmtQty(r.qty)}</td>
-        <td class="num">${r.price == null ? `<span class="muted">—</span>` : fmtM2(r.price)}</td>
-        <td class="num">${r.cost != null ? fmtM2(r.cost) : (workCost(r.qty, r.price) == null ? `<span class="muted">—</span>` : fmtM2(workCost(r.qty, r.price)))}</td>
-      </tr>`).join("");
-    tt = sumRows([...(s.works || []), ...(s.materials || []), ...(s.others || [])].map((r) => ({ qty: r.qty, price: r.price })), "price");
-  }
-  const fixedIdx = budgetVer.startsWith("f") ? parseInt(budgetVer.slice(1), 10) : -1;
-  return budgetChips(p, "cli")
-    + (working
-      ? `<div class="budget-actions">
-          <button class="btn-ghost" id="btn-agree-cli" type="button">Согласовать</button>
-          <button class="btn-primary" id="btn-make-kp" type="button">Сформировать КП</button>
-        </div>
-        <div class="note fin-note">Продажная сторона предварительного расчёта: цены вычисляются из закупочных и коэффициентов, вручную не заменяются — изменение коммерческого решения выражается изменением коэффициентов в "Предварительном расчёте". Согласование регистрируется событием и сохраняет продажные цены в самой версии; закупочная сторона в клиентскую версию не попадает.</div>`
-      : `<div class="budget-actions"><button class="btn-ghost" id="btn-export-bcli" data-ver="${fixedIdx}" type="button">Выгрузить PDF</button></div>
-        <div class="fix-cap"><b>${esc(s.label)} · ${esc(s.version)}</b> — зафиксирован ${fmtDate(s.date)}${s.approved_by ? ` · согласование: ${esc(s.approved_by)}` : ""}; версия неизменяема, правки — в "Предварительном расчёте"</div>`)
-    + `
-    <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th></tr></thead>
-      <tbody>${wrows}</tbody>
-    </table></div>
-    <div class="sect-title" style="margin-top:14px">Материалы</div>
-    <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Материал</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th></tr></thead>
-      <tbody>${mrows || `<tr><td colspan="6" class="muted">Строк нет</td></tr>`}</tbody>
-    </table></div>
-    <div class="sect-title" style="margin-top:14px">Проектные, сопутствующие и работы по повременной оценке</div>
-    <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Работа</th><th>Ед.</th><th class="num">Кол&#8209;во</th><th class="num">Цена за ед., €</th><th class="num">Стоимость, €</th></tr></thead>
-      <tbody>${orows || `<tr><td colspan="6" class="muted">Строк нет</td></tr>`}</tbody>
-    </table></div>
-    <div class="budget-summary">
-      <div>Оценено: <b>${fmtM2(tt.sum)}</b> (${tt.cnt} поз.)${tt.unev ? ` · не оценено: ${tt.unev} — пустая цена, коэффициент или количество означают неполный расчёт; полный итог проекта не показывается` : ""}</div>
-      <div>НДС 19 %: <b>${fmtM2(vatOf(tt.sum))}</b> · Итого с НДС: <b>${fmtM2(r2(tt.sum + vatOf(tt.sum)))}</b> (цены — без НДС; ставка сохраняется в версии бюджета)</div>
-      ${working && delta
-        ? `<div>Изменение к согласованной версии (${esc(snap(p, "cli").version)}, ${fmtDate(snap(p, "cli").date)}): <b>${delta.delta >= 0 ? "+" : ""}${fmtM2(delta.delta)}</b></div>
-           ${delta.excluded.length ? `<div>Исключено относительно согласованной: ${delta.excluded.map((r) => `"${esc(r.room)} / ${esc(r.work)}"`).join(", ")} — позиция сохранена в зафиксированной версии</div>` : ""}`
-        : ""}
-    </div>`;
-}
-
 /* Фактический труд по табелям (ТЗ "Финансы", табели) */
 function rLabor(p) {
   const list = p.timesheets || [];
@@ -2068,20 +2062,24 @@ function rLabor(p) {
 }
 
 /* Финансовые операции (ТЗ "Финансы", операции: колонки # / Дата / Тип / Назначение / Контрагент или сотрудник / Сумма / Способ оплаты / Статус / Документ) */
-const typeInfo = (o) => {
+const typeInfo = (p, o) => {
   const tp = opType(o);
   if (tp === "income") return { label: "Поступление", cls: "dir-in", sign: "+", num: "pos" };
   if (tp === "expense") return { label: "Расход", cls: "dir-out", sign: "−", num: "neg" };
-  if (tp === "refund") return o.dir === "in"
-    ? { label: "Возврат от контрагента", cls: "dir-in", sign: "+", num: "pos" }
-    : { label: "Возврат клиенту", cls: "dir-out", sign: "−", num: "neg" };
+  if (tp === "refund") {
+    // сторона возврата определяется исходной операцией по связи refund_of, а не полем записи
+    const src = (p.ops || []).find((x) => x !== o && x.status === "confirmed" && opType(x) !== "refund" && o.refund_of && x.purpose === o.refund_of);
+    if (src && opType(src) === "expense") return { label: "Возврат от контрагента", cls: "dir-in", sign: "+", num: "pos" };
+    if (src && opType(src) === "income") return { label: "Возврат клиенту", cls: "dir-out", sign: "−", num: "neg" };
+    return { label: "Возврат", cls: "muted", sign: "", num: "muted" };
+  }
   return { label: "Внутренний перевод", cls: "muted", sign: "", num: "muted" };
 };
 
 function rOps(p) {
   const list = p.ops || [];
   const body = list.map((o, i) => {
-    const ti = typeInfo(o);
+    const ti = typeInfo(p, o);
     return `
     <tr class="row-click" data-op="${i}" title="Открыть карточку операции">
       <td>${i + 1}</td>
@@ -2180,11 +2178,9 @@ function openOpCard(p, o) {
     if (!Number.isFinite(amount)) { amountEl.classList.add("input-err"); amountEl.focus(); return; }
     const rd = (id) => document.getElementById(id).value.trim();
     const tp = document.getElementById("op-type").value;
-    let dir = tp === "income" ? "in" : tp === "expense" ? "out" : null;
     const rec = {
       date: rd("op-date") || todayIso(),
       type: tp,
-      dir,
       purpose,
       party: rd("op-party"),
       amount,
@@ -2194,13 +2190,11 @@ function openOpCard(p, o) {
       const refundEl = document.getElementById("op-refund");
       if (!refundEl.value) { refundEl.classList.add("input-err"); refundEl.focus(); return; }
       rec.refund_of = refundEl.value;
-      const src = sources.find((x) => x.purpose === rec.refund_of);
-      rec.dir = src && src.dir === "in" ? "out" : "in"; // возврат клиенту — выплата, возврат от контрагента — приход
     }
     if (isNew) {
       rec.status = "unconfirmed";
       p.ops = [...(p.ops || []), rec];
-      logChange(p, "Финансы", `добавлена операция (${typeInfo(rec).label.toLowerCase()}): ${rec.purpose}, ${fmtM2(rec.amount)} — не подтверждена`);
+      logChange(p, "Финансы", `добавлена операция (${typeInfo(p, rec).label.toLowerCase()}): ${rec.purpose}, ${fmtM2(rec.amount)} — не подтверждена`);
     } else {
       Object.assign(o, rec);
       logChange(p, "Финансы", `операция изменена: ${o.purpose}, ${fmtM2(o.amount)}`);
@@ -2217,9 +2211,7 @@ function rFinance(p) {
       ${FIN_VIEWS.map((v) => `<button class="fchip${finView === v.id ? " active" : ""}" data-fin="${v.id}" type="button">${esc(v.label)}</button>`).join("")}
     </div>
     ${finView === "svodny" ? rSvodny(p)
-      : finView === "calc" ? rCalc(p)
-      : finView === "b-int" ? rBudgetInt(p)
-      : finView === "b-cli" ? rBudgetCli(p)
+      : finView === "est" ? rEst(p)
       : finView === "labor" ? rLabor(p)
       : rOps(p)}`;
 }
@@ -2275,17 +2267,32 @@ function openWorkAdd(p) {
       qty: qv === "" ? null : parseFloat(qv),
       scope: null, origin: null, rel: [],
       price_buy: null, k1: null, k2: 1,
+      wstate: "planned",
     }];
-    logChange(p, "Финансы", `предварительный расчёт: добавлена позиция состава "${room} / ${work}" — появляется и в "Основном"`);
+    logChange(p, "Финансы", `Сметы: добавлена позиция состава "${room} / ${work}" — появляется и в "Основном"`);
     closeAnyModal();
     render();
   });
   document.getElementById("wa-work").focus();
 }
 
-/* ТЗ "Финансы", расчёт: добавление строки материалов или прочих работ */
+/* ТЗ "Финансы" 2.2: добавление строки материалов — точными ценами или границами оценки */
 function openCalcRow(p, kind) {
   const isMat = kind === "mat";
+  let byRange = false;
+  const renderFields = () => {
+    const priceFields = `
+        <label>Вн. цена за ед., €</label>
+        <input id="cx-buy" type="number" min="0" step="any">
+        <label>Коэф. 1</label>
+        <input id="cx-k1" type="number" min="0" step="any">`;
+    const rangeFields = `
+        <label>Граница "от", €</label>
+        <input id="cx-lo" type="number" min="0" step="any">
+        <label>Граница "до", €</label>
+        <input id="cx-hi" type="number" min="0" step="any">`;
+    document.getElementById("cx-price-wrap").innerHTML = byRange ? rangeFields : priceFields;
+  };
   mountModal(`
     <div class="modal">
       <div class="modal-title">${isMat ? "Добавить материал" : "Добавить работу"}</div>
@@ -2296,30 +2303,45 @@ function openCalcRow(p, kind) {
         <input id="cx-unit" type="text" autocomplete="off" value="${isMat ? "компл" : "мес"}">
         <label>Кол&#8209;во</label>
         <input id="cx-qty" type="number" min="0" step="any">
-        <label>Вн. цена за ед., €</label>
-        <input id="cx-buy" type="number" min="0" step="any">
-        <label>Коэф. 1</label>
-        <input id="cx-k1" type="number" min="0" step="any">
+        ${isMat ? `<label class="chk-row" style="margin:0"><input type="checkbox" id="cx-range"><span class="chk-name">Оценка границами (диапазон)</span></label>` : ""}
+        <div id="cx-price-wrap"></div>
       </div>
       <div class="modal-actions">
         <button class="btn-ghost" id="cx-cancel" type="button">Отмена</button>
         <button class="btn-primary" id="cx-save" type="button">Добавить</button>
       </div>
       <div class="note">${isMat
-        ? "Материалы — общая предварительная оценка; закупки и отчётность по факту начинаются при выполнении работ."
+        ? "Материалы — общая предварительная оценка. Границами — когда точная цена неизвестна: обе границы становятся значениями строки и входят в Итого диапазоном, закупочная сторона при этом не оценивается."
         : "Проектные, сопутствующие и повременные работы; месяцы и приведённые значения — не обязательный признак каждого заказа."}</div>
     </div>`);
+  const cb = document.getElementById("cx-range");
+  if (cb) cb.addEventListener("change", () => { byRange = cb.checked; renderFields(); });
+  renderFields();
   document.getElementById("cx-cancel").addEventListener("click", closeAnyModal);
   document.getElementById("cx-save").addEventListener("click", () => {
     const nameEl = document.getElementById("cx-name");
     const name = nameEl.value.trim();
     if (!name) { nameEl.classList.add("input-err"); nameEl.focus(); return; }
     const rd = (id) => document.getElementById(id).value.trim();
-    const num = (v) => (v === "" ? null : parseFloat(v));
+    const num = (v) => (v === "" || v == null ? null : parseFloat(v));
     const list = isMat ? (p.materials = p.materials || []) : (p.others = p.others || []);
     const id = list.reduce((mx, x) => Math.max(mx, x.id || 0), 0) + 1;
-    list.push({ id, name, unit: rd("cx-unit"), qty: num(rd("cx-qty")), price_buy: num(rd("cx-buy")), k1: num(rd("cx-k1")), k2: 1, comment: "" });
-    logChange(p, "Финансы", `предварительный расчёт: добавлена строка ${isMat ? "материалов" : "прочих работ"} "${name}"`);
+    let rec;
+    if (isMat && byRange) {
+      const lo = num(rd("cx-lo"));
+      const hi = num(rd("cx-hi"));
+      if (lo == null || hi == null) {
+        const bad = document.getElementById("cx-lo");
+        bad.classList.add("input-err");
+        bad.focus();
+        return;
+      }
+      rec = { id, name, unit: rd("cx-unit"), qty: num(rd("cx-qty")), range: { lo, hi }, comment: "Предварительная оценка" };
+    } else {
+      rec = { id, name, unit: rd("cx-unit"), qty: num(rd("cx-qty")), price_buy: num(rd("cx-buy")), k1: num(rd("cx-k1")), k2: 1, comment: "" };
+    }
+    list.push(rec);
+    logChange(p, "Финансы", `Сметы: добавлена строка ${isMat ? "материалов" : "прочих работ"} "${name}"${rec.range ? " — оценкой границами" : ""}`);
     closeAnyModal();
     render();
   });
@@ -2472,7 +2494,7 @@ function openPlanRow(p, w) {
         <tr><td class="fld">Последовательность</td><td>${preds.length
           ? preds.map((x) => { const n = normOf(x); return `"${esc(workName(x))}"${n && n.pause ? ` (пауза ${n.pause} к.д.)` : ""}`; }).join("; ") + " — технологические предшественники"
           : `<span class="muted">нет — от начальной даты, параллельно с независимыми последовательностями</span>`}</td></tr>
-        <tr><td class="fld">Статус</td><td><span class="chip chip-stage">Запланировано</span></td></tr>
+        <tr><td class="fld">Состояние работы</td><td>${wstateChip(w)}${w.why ? `<div class="svod-src">${esc(w.why)}</div>` : ""}<div class="svod-src" style="margin-top:4px">Строка графика показывает состояние работы позиции ("Карточка проекта", 2.6)</div></td></tr>
       </tbody></table></div>
       <div class="modal-actions">
         <button class="btn-ghost" id="pr-cancel" type="button">Закрыть</button>
@@ -2526,7 +2548,7 @@ function openPlanRowFixed(p, v, r) {
         <tr><td class="fld">Расчёт длительности</td><td>${calc}</td></tr>
         <tr><td class="fld">Даты</td><td>${r.start ? `${fmtDate(r.start)} — ${fmtDate(r.finish)}` : `<span class="muted">—</span>`}</td></tr>
         <tr><td class="fld">Позиция состава</td><td>${w ? `#${r.wid} — в текущем составе` : `<span class="muted">#${r.wid} — исключена из состава после фиксации</span>`}</td></tr>
-        <tr><td class="fld">Статус</td><td><span class="chip chip-stage">Запланировано</span></td></tr>
+        <tr><td class="fld">Состояние работы</td><td>${w ? wstateChip(w) : `<span class="muted">исключена из состава</span>`}${w && w.why ? `<div class="svod-src">${esc(w.why)}</div>` : ""}</td></tr>
       </tbody></table></div>
       <div class="modal-actions"><button class="btn-ghost" id="pf-close" type="button">Закрыть</button></div>
       <div class="note">Зафиксированная версия неизменяема: состав, нормы, длительности, даты и параметры календаря сохранены в самой версии; загрузка нового файла норм план не переписывает.</div>
@@ -2553,52 +2575,34 @@ function fixedPlanView(p, v) {
       <td>${i + 1}</td><td>${stageCell(r.stage)}</td><td>${esc(r.room)}</td><td>${esc(r.work)}</td>
       <td class="muted">${r.start ? fmtDate(r.start) : `[ ]`}</td>
       <td class="muted">${r.finish ? fmtDate(r.finish) : `[ ]`}</td>
-      <td><span class="chip chip-stage">Запланировано</span></td>
+      <td>${curById.get(r.wid) ? wstateChip(curById.get(r.wid)) : `<span class="chip chip-doc-draft">Исключена</span>`}</td>
     </tr>`).join("");
   return `
     <div class="fix-cap"><b>${esc(v.label)} · ${esc(v.version)}</b> — зафиксирован ${fmtDate(v.date)} · предпосылка ${esc(v.premise)} · календарь: ${esc(v.calendar)}${v.start ? ` · начальная дата ${fmtDate(v.start)}` : " · без начальной даты"} · файл норм, версия ${esc(v.norms || DATA.norms.version)}</div>
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Статус</th></tr></thead>
+      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Состояние работы</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <div class="budget-summary"><div>${cmp.length ? "К рабочей редакции: " + cmp.join("; ") : "Рабочая редакция совпадает с версией по составу и длительностям"}</div></div>
     <div class="note">Зафиксированная версия неизменяема; новая фиксация — новая версия. Исходный календарный план — внутренний документ с выгрузкой в "Документах". Пересчёт меняет рабочую редакцию; зафиксированный план служит для сравнения.</div>`;
 }
 
-/* ТЗ "График", фиксация: "Зафиксировать план" — версия с составом, нормами, длительностями, датами и параметрами */
+/* ТЗ "График", фиксация: "Зафиксировать план" — снимок рабочей редакции; документ получает событие фиксации */
 function fixPlan(p) {
-  const fl = p.fix_plan || [];
-  const src = schedRows(p, p.plan_start);
-  const rows = src.rows.map((r) => ({
-    wid: r.w.id, stage: r.w.stage, room: r.w.room, element: r.w.element || null, work: r.w.work, unit: r.w.unit, qty: r.w.qty,
-    norm: r.src === "norm" ? normOf(r.w).key : (r.w.norm || null),
-    dur: r.dur, start: r.start ? dISO(r.start) : null, finish: r.finish ? dISO(r.finish) : null, status: "planned",
-  }));
-  const v = {
-    version: "v" + (fl.length + 1),
-    label: "Исходный календарный план",
-    short: "Исходный",
-    date: todayIso(),
-    norms: DATA.norms.version,
-    start: p.plan_start || null,
-    premise: PLAN_PREMISE,
-    calendar: PLAN_CALENDAR,
-    rows,
-  };
-  p.fix_plan = [...fl, v];
+  const v = snapshotPlan(p);
+  if (!v) return; // строк плана нет — фиксировать нечего
+  p.fix_plan = [...(p.fix_plan || []), v];
   planVer = "f" + (p.fix_plan.length - 1);
   p.docs = [...(p.docs || []), {
-    name: "Исходный календарный план " + v.version + ".pdf",
+    name: "Календарный план " + v.version + ".pdf",
     type: "Календарный план",
-    dir: "int",
     party: p.pm ? p.pm.name : "",
     date: v.date,
-    date_doc: v.date,
-    status: "approved",
     version: v.version,
+    events: [{ kind: "fixed", date: v.date, who: "Демо-пользователь", note: "план зафиксирован" }],
     plan: v.version,
   }];
-  logChange(p, "График", `план зафиксирован: ${v.version} (${fmtDate(v.date)}) — ${rows.length} позиций, предпосылка ${PLAN_PREMISE}${p.plan_start ? `, старт ${fmtDate(p.plan_start)}` : ", без начальной даты"}; версия добавлена в "Документы" (внутренний)`);
+  logChange(p, "График", `план зафиксирован: ${v.version} (${fmtDate(v.date)}) — ${v.rows.length} позиций, предпосылка ${PLAN_PREMISE}${p.plan_start ? `, старт ${fmtDate(p.plan_start)}` : ", без начальной даты"}; документ добавлен в "Документы"`);
   render();
 }
 
@@ -2615,7 +2619,7 @@ function rSchedule(p) {
       <td>${i + 1}</td><td>${stageCell(r.w.stage)}</td><td>${esc(r.w.room)}</td><td>${esc(r.w.work)}</td>
       <td class="muted">${r.start ? fmtDate(r.start) : (r.dur == null ? `<span class="muted">[ ]</span>` : "—")}</td>
       <td class="muted">${r.finish ? fmtDate(r.finish) : (r.dur == null ? `<span class="muted">[ ]</span>` : "—")}</td>
-      <td><span class="chip chip-stage">Запланировано</span></td>
+      <td>${wstateChip(r.w)}</td>
     </tr>`).join("");
   return `
     ${planChips(p)}
@@ -2625,12 +2629,12 @@ function rSchedule(p) {
       <div style="margin-top:8px">Начальная дата: <input type="date" id="sch-start" value="${esc(p.plan_start || "")}">${p.plan_start ? "" : ` <span class="muted">— не задана: показываются трудоёмкость, длительности и последовательность, календарные даты не подставляются</span>`}</div>
     </div>
     <div class="tbl-wrap"><table class="tbl">
-      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Статус</th></tr></thead>
+      <thead><tr><th>#</th><th>Стадия</th><th>Помещение</th><th>Работа</th><th>Старт</th><th>Финиш</th><th>Состояние работы</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="7" class="muted">Состав не задан</td></tr>`}</tbody>
     </table></div>
     <div class="budget-summary">
       <div>Позиций: <b>${t.cnt}</b> · по норме: ${t.byNorm} · ручная длительность: ${t.manual} · длительность [ ]: ${t.none}</div>
-      <div>Трудоёмкость по нормам: <b>${fmtQty(t.hours)} чел.-ч</b>${t.finish ? ` · финиш проекта: <b>${fmtDate(t.finish)}</b>` : ""}</div>
+      <div>Трудоёмкость по нормам: <b>${fmtQty(t.hours)} чел.-ч</b>${t.finish ? ` · финиш проекта: <b>${fmtDate(t.finish)}</b>` : ""} · открытых работ: <b>${openWorks(p).length}</b></div>
     </div>
     <div class="note">Строки — подробные позиции состава ("Основное"); объединённый КП строк графика не порождает. Общая оценка материалов и месяцы проектных, сопутствующих и повременных работ строительными операциями не становятся. Зависимая работа начинается после завершения предшественника и паузы его нормы (минимум один день); независимые последовательности идут параллельно. Деление площади на несколько строк сохраняет суммарные чел.-ч, календарная длительность может измениться из-за округления каждой строки до смены — это видно в расчёте строки.</div>`;
 }
@@ -2840,8 +2844,6 @@ function bindTasks(p) {
 }
 
 function bindDocs(p) {
-  document.querySelectorAll("[data-ddir]").forEach((b) =>
-    b.addEventListener("click", () => { docDir = b.dataset.ddir; render(); }));
   document.querySelectorAll("tr[data-doc]").forEach((tr) =>
     tr.addEventListener("click", () => {
       const d = (p.docs || [])[+tr.dataset.doc];
@@ -2851,11 +2853,11 @@ function bindDocs(p) {
 
 function bindFinance(p) {
   document.querySelectorAll("[data-fin]").forEach((b) =>
-    b.addEventListener("click", () => { finView = b.dataset.fin; budgetVer = "work"; render(); }));
-  document.querySelectorAll("[data-bver]").forEach((b) =>
-    b.addEventListener("click", () => { budgetVer = b.dataset.bver; render(); }));
+    b.addEventListener("click", () => { finView = b.dataset.fin; render(); }));
+  document.querySelectorAll("[data-ever]").forEach((b) =>
+    b.addEventListener("click", () => { estSel = b.dataset.ever; render(); }));
 
-  /* Предварительный расчёт: закупочные цены, коэффициенты, комментарии; продажа пересчитывается, не вводится */
+  /* Сметы, рабочая редакция: закупочные цены и коэффициенты; продажа пересчитывается, не вводится */
   const readNum = (v) => { const x = parseFloat(v); return v === "" || !Number.isFinite(x) ? null : x; };
   const calcInput = (sel, find, label) => {
     document.querySelectorAll(sel).forEach((inp) => inp.addEventListener("change", () => {
@@ -2864,8 +2866,8 @@ function bindFinance(p) {
       const k = inp.dataset.k;
       const next = k === "comment" ? inp.value.trim() : readNum(inp.value);
       if ((r[k] == null ? "" : r[k]) !== (next == null ? "" : next)) {
-        const what = { price_buy: "закупочная цена", k1: "Коэф. 1", k2: "Коэф. 2", comment: "комментарий" }[k] || k;
-        logChange(p, "Финансы", `"${label(r)}": ${what} ${r[k] == null || r[k] === "" ? "не задано" : r[k]} → ${next == null || next === "" ? "не задано" : next}`);
+        const what = { price_buy: "вн. цена за ед.", k1: "Коэф. 1", comment: "комментарий" }[k] || k;
+        logChange(p, "Финансы", `Сметы: "${label(r)}": ${what} ${r[k] == null || r[k] === "" ? "не задано" : r[k]} → ${next == null || next === "" ? "не задано" : next}`);
         r[k] = next;
         if (k === "price_buy" && r.price_check) r.price_check = false; // цена введена заново — проверка выполнена
       }
@@ -2876,12 +2878,26 @@ function bindFinance(p) {
   calcInput("[data-cm]", (inp) => (p.materials || []).find((x) => String(x.id) === inp.dataset.cm), (x) => x.name);
   calcInput("[data-co]", (inp) => (p.others || []).find((x) => String(x.id) === inp.dataset.co), (x) => x.name);
 
-  // строка расчёта открывает позицию состава; правка полей цены кликом по строке не считается
+  // границы диапазонной строки материалов (ТЗ "Финансы" 2.2): обе границы — значения строки
+  document.querySelectorAll("[data-mr]").forEach((inp) => inp.addEventListener("change", () => {
+    const m = (p.materials || []).find((x) => String(x.id) === inp.dataset.mr);
+    if (!m || !m.range) return;
+    const side = inp.dataset.k; // lo | hi
+    const next = readNum(inp.value);
+    if (next == null) return;
+    if (m.range[side] !== next) {
+      logChange(p, "Финансы", `Сметы: "${m.name}": граница ${side === "lo" ? "от" : "до"} ${fmtM2(m.range[side])} → ${fmtM2(next)}`);
+      m.range[side] = next;
+    }
+    render();
+  }));
+
+  // строка СМР открывает формулу строки и Коэф. 2; правка полей кликом по строке не считается
   document.querySelectorAll("tr[data-cwork]").forEach((tr) =>
     tr.addEventListener("click", (e) => {
       if (e.target.closest("input")) return;
       const w = (p.works || []).find((x) => String(x.id) === tr.dataset.cwork);
-      if (w) openWorkCard(p, w);
+      if (w) openEstRow(p, w);
     }));
 
   const c2 = document.getElementById("calc-c2");
@@ -2905,26 +2921,31 @@ function bindFinance(p) {
   document.querySelectorAll("[data-mdel]").forEach((b) => b.addEventListener("click", () => {
     const x = (p.materials || []).find((mm) => String(mm.id) === b.dataset.mdel);
     p.materials = (p.materials || []).filter((mm) => String(mm.id) !== b.dataset.mdel);
-    logChange(p, "Финансы", `предварительный расчёт: исключена строка материалов "${x ? x.name : ""}"`);
+    logChange(p, "Финансы", `Сметы: исключена строка материалов "${x ? x.name : ""}"`);
     render();
   }));
   document.querySelectorAll("[data-odel]").forEach((b) => b.addEventListener("click", () => {
     const x = (p.others || []).find((oo) => String(oo.id) === b.dataset.odel);
     p.others = (p.others || []).filter((oo) => String(oo.id) !== b.dataset.odel);
-    logChange(p, "Финансы", `предварительный расчёт: исключена строка прочих работ "${x ? x.name : ""}"`);
+    logChange(p, "Финансы", `Сметы: исключена строка прочих работ "${x ? x.name : ""}"`);
     render();
   }));
 
-  const fixInt = document.getElementById("btn-fix-int");
-  if (fixInt) fixInt.addEventListener("click", () => fixInternal(p));
-  const agree = document.getElementById("btn-agree-cli");
-  if (agree) agree.addEventListener("click", () => openAgree(p));
+  const fixBtn = document.getElementById("btn-fix-est");
+  if (fixBtn) fixBtn.addEventListener("click", () => { fixEst(p); render(); });
   const makeKp = document.getElementById("btn-make-kp");
   if (makeKp) makeKp.addEventListener("click", () => openKpForm(p, "all"));
-  const exportBcli = document.getElementById("btn-export-bcli");
-  if (exportBcli) exportBcli.addEventListener("click", () => {
-    const v = fixList(p, "cli")[+exportBcli.dataset.ver];
-    if (v) exportPdf(bcliHtml(p, v));
+  const agreeEst = document.getElementById("btn-agree-est");
+  if (agreeEst) agreeEst.addEventListener("click", () => {
+    const v = estSel.startsWith("e") ? estList(p)[+estSel.slice(1)] : null;
+    const doc = v && (p.docs || []).find((x) => x.est === v.id);
+    if (doc) openDocEvent(p, doc, "agreed");
+  });
+  const exportEst = document.getElementById("btn-export-est");
+  if (exportEst) exportEst.addEventListener("click", () => {
+    const v = estSel.startsWith("e") ? estList(p)[+estSel.slice(1)] : null;
+    const doc = v && (p.docs || []).find((x) => x.est === v.id);
+    if (doc) exportPdf(estHtml(p, doc));
   });
   const addOp = document.getElementById("btn-add-op");
   if (addOp) addOp.addEventListener("click", () => openOpCard(p, null));
@@ -2933,10 +2954,8 @@ function bindFinance(p) {
       const o = (p.ops || [])[+tr.dataset.op];
       if (o) openOpCard(p, o);
     }));
-  const svodInt = document.getElementById("svod-int");
-  if (svodInt) svodInt.addEventListener("change", () => { svodSel.int = svodInt.value; render(); });
-  const svodCli = document.getElementById("svod-cli");
-  if (svodCli) svodCli.addEventListener("change", () => { svodSel.cli = svodCli.value; render(); });
+  const svodSelEl = document.getElementById("svod-est");
+  if (svodSelEl) svodSelEl.addEventListener("change", () => { svodSel = svodSelEl.value; render(); });
 }
 
 /* ---------------- каркас и маршрутизация ---------------- */
