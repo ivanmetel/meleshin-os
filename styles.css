@@ -582,3 +582,33 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+
+/* ---------- полоса потока (ТЗ "Карточка проекта", 2.3.1) ---------- */
+
+.flow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.flow-step {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.flow-step:hover { border-color: #94a3b8; }
+.fs-mark { font-size: 11px; }
+.fs-label { font-weight: 600; }
+.fs-detail { color: #64748b; }
+.fs-done .fs-mark { color: #16a34a; }
+.fs-current { border-color: #2563eb; background: #eff6ff; }
+.fs-current .fs-mark { color: #2563eb; }
+.fs-none .fs-mark, .fs-none .fs-label, .fs-none .fs-detail { color: #94a3b8; }

@@ -2734,6 +2734,55 @@ function headCard(p) {
     </div>`;
 }
 
+/* ---------------- полоса потока (ТЗ "Карточка проекта", 2.3.1) ----------------
+   Состояние шага вычисляется из данных проекта и вручную не назначается */
+function flowSteps(p) {
+  const docs = p.docs || [];
+  const works = p.works || [];
+  const t = finTotals(p);
+  const lastDoc = (type) => [...docs].reverse().find((d) => d.type === type) || null;
+  const pdGot = docs.some((d) => d.type === "Проектная документация" && docHasEvent(d, "received"));
+  const estOk = works.filter((w) => w.price_buy != null && w.k1 != null);
+  const sched = schedRows(p, p.plan_start);
+  const schedDur = sched.rows.length > 0 && sched.rows.every((r) => r.dur != null);
+  const finishes = sched.rows.map((r) => r.finish).filter(Boolean).sort();
+  const kp = lastDoc("КП");
+  const dog = lastDoc("Договор");
+  const invSent = docs.some((d) => d.type === "Счёт" && docHasEvent(d, "sent"));
+  const akt = lastDoc("Акт выполненных работ");
+  const openCnt = openWorks(p).length;
+  const st = (key, label, done, detail, tab, doc) => ({ key, label, done: !!done, detail, tab, doc: doc || null });
+  const steps = [
+    st("obj", "Объект и ПД", (p.rooms || []).length > 0 && pdGot, `${(p.rooms || []).length} пом.`, "facility"),
+    st("sostav", "Состав", works.length > 0, `${works.length} поз.`, "general"),
+    st("est", "Смета", works.length > 0 && estOk.length === works.length, works.length ? `оценено ${estOk.length} из ${works.length}` : "позиций нет", "finance"),
+    st("sched", "График", schedDur, !sched.rows.length ? "строк нет" : (p.plan_start && finishes.length ? `финиш ${fmtDate(finishes[finishes.length - 1])}` : "без начальной даты"), "schedule"),
+    st("kp", "КП", kp && docHasEvent(kp, "agreed"), kp ? docState(kp).label : "не выпущено", "documents", kp),
+    st("dog", "Договор и предоплата", dog && docHasEvent(dog, "agreed") && invSent && t.income > 0, dog ? docState(dog).label : "документ не заведён", "documents", dog),
+    st("smr", "СМР", p.stage === "smr" || p.stage === "postproekt", openCnt ? `открытых работ: ${openCnt}` : "открытых нет", "schedule"),
+    st("akt", "Акт", akt && docHasEvent(akt, "agreed"), akt ? docState(akt).label : "не зарегистрирован", "documents", akt),
+    st("post", "Пост-проектные", p.stage === "postproekt", p.stage === "postproekt" ? "этап достигнут" : "впереди", "general"),
+  ];
+  // "текущий" — шаг этапа проекта: предпроектные работы — первый непройденный шаг подготовки
+  let current;
+  if (p.stage === "smr") current = "smr";
+  else if (p.stage === "postproekt") current = "post";
+  else current = (steps.slice(0, 6).find((s) => !s.done) || {}).key || null;
+  steps.forEach((s) => { s.state = s.key === current ? "current" : s.done ? "done" : s.key === "dog" && !dog ? "none" : "todo"; });
+  return steps;
+}
+
+function rFlow(p) {
+  const mark = { done: "✓", current: "●", todo: "○", none: "[ ]" };
+  return `
+    <div class="flow-strip" id="flow-strip">
+      ${flowSteps(p).map((s) => `
+        <button class="flow-step fs-${s.state}" data-fkey="${s.key}" type="button" title="${esc(s.label)} — ${esc(s.detail)}">
+          <span class="fs-mark">${mark[s.state]}</span><span class="fs-label">${esc(s.label)}</span><span class="fs-detail">${esc(s.detail)}</span>
+        </button>`).join("")}
+    </div>`;
+}
+
 /* ---------------- страница "Все проекты" (ТЗ "Карточка проекта", переход) ---------------- */
 
 function projCard(p) {
@@ -2992,6 +3041,7 @@ function render() {
     wrap.innerHTML = `
       <div class="card">
         ${headCard(p)}
+        ${rFlow(p)}
         <nav class="tabs">
           ${TABS.map((t) => `<button class="tab${t.id === r.tab ? " active" : ""}" data-tab="${t.id}" type="button">${t.label}</button>`).join("")}
         </nav>
@@ -3003,6 +3053,15 @@ function render() {
 
     wrap.querySelectorAll(".tab").forEach((b) =>
       b.addEventListener("click", () => { location.hash = `#/${p.url}/${b.dataset.tab}`; }));
+
+    // полоса потока: шаг с документом открывает его карточку, остальные — свою вкладку (ТЗ 2.3.1)
+    wrap.querySelectorAll(".flow-step").forEach((b) =>
+      b.addEventListener("click", () => {
+        const s = flowSteps(p).find((x) => x.key === b.dataset.fkey);
+        if (!s) return;
+        if (s.doc) openDocCard(p, s.doc);
+        else location.hash = `#/${p.url}/${s.tab}`;
+      }));
 
     const editBtn = document.getElementById("btn-edit");
     if (editBtn) editBtn.addEventListener("click", () => openEdit(p));
